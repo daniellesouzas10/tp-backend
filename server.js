@@ -20,6 +20,8 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const schema = fs.readFileSync('./schema.sql', 'utf8');
 db.exec(schema);
 
+db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, () => {});
+
 /* MIDDLEWARE AUTH */
 function auth(req, res, next) {
   const header = req.headers.authorization;
@@ -380,6 +382,7 @@ app.get('/me', auth, (req, res) => {
       users.name,
       users.email,
       users.role,
+      users.phone,
       plans.name AS plan
     FROM users
     LEFT JOIN user_plans ON user_plans.user_id = users.id
@@ -496,6 +499,43 @@ app.get('/student/progress', auth, (req, res) => {
 app.get('/', (req, res) => {
   res.send('Backend Personal do Zero online 🚀');
 });
+
+app.patch('/me', auth, async (req, res) => {
+  const { name, phone, password } = req.body;
+
+  if (!name || name.trim().length < 2) {
+    return res.status(400).json({ error: 'Nome inválido.' });
+  }
+
+  if (password && password.length < 6) {
+    return res.status(400).json({ error: 'A senha deve ter pelo menos 6 caracteres.' });
+  }
+
+  if (password) {
+    const hash = await bcrypt.hash(password, 10);
+
+    db.run(
+      `UPDATE users SET name = ?, phone = ?, password_hash = ? WHERE id = ?`,
+      [name, phone || null, hash, req.user.id],
+      function (err) {
+        if (err) return res.status(400).json({ error: err.message });
+
+        res.json({ success: true });
+      }
+    );
+  } else {
+    db.run(
+      `UPDATE users SET name = ?, phone = ? WHERE id = ?`,
+      [name, phone || null, req.user.id],
+      function (err) {
+        if (err) return res.status(400).json({ error: err.message });
+
+        res.json({ success: true });
+      }
+    );
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
