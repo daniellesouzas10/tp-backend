@@ -538,6 +538,20 @@ app.patch('/me', auth, async (req, res) => {
   }
 });
 
+
+app.get('/debug/users', (req, res) => {
+  db.all(
+    `SELECT id, name, email, role, status FROM users`,
+    [],
+    (err, rows) => {
+      if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+
+      res.json(rows);
+    }
+  );
+});
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
