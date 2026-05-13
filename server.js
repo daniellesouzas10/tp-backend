@@ -384,6 +384,7 @@ app.get('/me', auth, (req, res) => {
       users.email,
       users.role,
       users.phone,
+      users.address,
       plans.name AS plan
     FROM users
     LEFT JOIN user_plans ON user_plans.user_id = users.id
@@ -502,7 +503,7 @@ app.get('/', (req, res) => {
 });
 
 app.patch('/me', auth, async (req, res) => {
-  const { name, phone, password } = req.body;
+  const { name, phone, address, password } = req.body;
 
   if (!name || name.trim().length < 2) {
     return res.status(400).json({ error: 'Nome inválido.' });
@@ -516,8 +517,8 @@ app.patch('/me', auth, async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
 
     db.run(
-      `UPDATE users SET name = ?, phone = ?, password_hash = ? WHERE id = ?`,
-      [name, phone || null, hash, req.user.id],
+      `UPDATE users SET name = ?, phone = ?, address = ?, password_hash = ? WHERE id = ?`,
+      [name, phone || null, address || null, hash, req.user.id],
       function (err) {
         if (err) return res.status(400).json({ error: err.message });
 
@@ -526,8 +527,8 @@ app.patch('/me', auth, async (req, res) => {
     );
   } else {
     db.run(
-      `UPDATE users SET name = ?, phone = ? WHERE id = ?`,
-      [name, phone || null, req.user.id],
+      `UPDATE users SET name = ?, phone = ?, address = ? WHERE id = ?`,
+      [name, phone || null, address || null, req.user.id],
       function (err) {
         if (err) return res.status(400).json({ error: err.message });
 
