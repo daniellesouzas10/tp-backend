@@ -21,6 +21,7 @@ const schema = fs.readFileSync('./schema.sql', 'utf8');
 db.exec(schema);
 
 db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN address TEXT`, () => {});
 
 /* MIDDLEWARE AUTH */
 function auth(req, res, next) {
