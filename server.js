@@ -493,7 +493,9 @@ app.get('/student/progress', auth, (req, res) => {
 });
 
 /* SERVER */
-
+app.get('/', (req, res) => {
+  res.send('Backend Personal do Zero online 🚀');
+});
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
