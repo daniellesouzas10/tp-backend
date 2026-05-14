@@ -23,6 +23,22 @@ db.exec(schema);
 db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN address TEXT`, () => {});
 
+db.run(`
+  CREATE TABLE IF NOT EXISTS student_products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    product_type TEXT NOT NULL,
+    product_name TEXT NOT NULL,
+    release_datetime TEXT NOT NULL,
+    main_url TEXT,
+    material_url TEXT,
+    bonus_url TEXT,
+    notes TEXT,
+    access_status TEXT DEFAULT 'active',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
 /* MIDDLEWARE AUTH */
 function auth(req, res, next) {
   const header = req.headers.authorization;
@@ -373,6 +389,66 @@ app.get('/admin/notices', auth, adminOnly, (req, res) => {
   });
 });
 
+/* ADMIN — LIBERAÇÃO UNIFICADA DE PRODUTO */
+
+app.post('/admin/product-release', auth, adminOnly, (req, res) => {
+  const {
+    user_id,
+    product_type,
+    product_name,
+    release_datetime,
+    main_url,
+    material_url,
+    bonus_url,
+    notes
+  } = req.body;
+
+  if (!user_id || !product_type || !product_name || !release_datetime) {
+    return res.status(400).json({
+      error: 'Informe aluno, produto, nome do produto e data/hora de liberação.'
+    });
+  }
+
+  db.run(
+    `
+    INSERT INTO student_products
+    (
+      user_id,
+      product_type,
+      product_name,
+      release_datetime,
+      main_url,
+      material_url,
+      bonus_url,
+      notes,
+      access_status
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+    `,
+    [
+      user_id,
+      product_type,
+      product_name,
+      release_datetime,
+      main_url || null,
+      material_url || null,
+      bonus_url || null,
+      notes || null
+    ],
+    function (err) {
+      if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+
+      res.json({
+        success: true,
+        id: this.lastID,
+        message: 'Produto liberado para o aluno.'
+      });
+    }
+  );
+});
+
 /* ALUNO — MEUS DADOS */
 
 app.get('/me', auth, (req, res) => {
@@ -398,6 +474,132 @@ app.get('/me', auth, (req, res) => {
       }
 
       res.json(row);
+    }
+  );
+});
+
+app.patch('/me', auth, async (req, res) => {
+  const { name, phone, address, password } = req.body;
+
+  if (!name || name.trim().length < 2) {
+    return res.status(400).json({ error: 'Nome inválido.' });
+  }
+
+  if (password && password.length < 6) {
+    return res.status(400).json({ error: 'A senha deve ter pelo menos 6 caracteres.' });
+  }
+
+  if (password) {
+    const hash = await bcrypt.hash(password, 10);
+
+    db.run(
+      `UPDATE users SET name = ?, phone = ?, address = ?, password_hash = ? WHERE id = ?`,
+      [name, phone || null, address || null, hash, req.user.id],
+      function (err) {
+        if (err) return res.status(400).json({ error: err.message });
+
+        res.json({ success: true });
+      }
+    );
+  } else {
+    db.run(
+      `UPDATE users SET name = ?, phone = ?, address = ? WHERE id = ?`,
+      [name, phone || null, address || null, req.user.id],
+      function (err) {
+        if (err) return res.status(400).json({ error: err.message });
+
+        res.json({ success: true });
+      }
+    );
+  }
+});
+
+/* ALUNO — PRODUTOS LIBERADOS */
+
+app.get('/student/products', auth, (req, res) => {
+  db.all(
+    `
+    SELECT *
+    FROM student_products
+    WHERE user_id = ?
+    AND access_status = 'active'
+    ORDER BY release_datetime ASC
+    `,
+    [req.user.id],
+    (err, products) => {
+      if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+
+      const now = new Date();
+
+      const formatted = products.map(product => {
+        const releaseDate = new Date(product.release_datetime);
+
+        return {
+          ...product,
+          released: now >= releaseDate
+        };
+      });
+
+      res.json(formatted);
+    }
+  );
+});
+
+/* COMPATIBILIDADE — WORKSHOP DO ALUNO */
+
+app.get('/student/workshop', auth, (req, res) => {
+  db.get(
+    `
+    SELECT *
+    FROM student_products
+    WHERE user_id = ?
+    AND product_type = 'workshop'
+    AND access_status = 'active'
+    ORDER BY release_datetime ASC
+    LIMIT 1
+    `,
+    [req.user.id],
+    (err, product) => {
+      if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+
+      if (!product) {
+        return res.json(null);
+      }
+
+      const now = new Date();
+      const releaseDate = new Date(product.release_datetime);
+      const released = now >= releaseDate;
+
+      res.json({
+        id: product.id,
+        title: product.product_name,
+        description: product.notes || 'Um encontro ao vivo de 2 horas para diagnosticar os principais gargalos da carreira.',
+        event_datetime: product.release_datetime,
+        live_url: product.main_url,
+        material_url: released ? product.material_url : null,
+        bonus_url: released ? product.bonus_url : null,
+        released,
+        materials: released
+          ? [
+              product.material_url
+                ? {
+                    title: 'Material do Aluno',
+                    file_url: product.material_url
+                  }
+                : null,
+              product.bonus_url
+                ? {
+                    title: 'Autodiagnóstico da Carreira',
+                    file_url: product.bonus_url
+                  }
+                : null
+            ].filter(Boolean)
+          : []
+      });
     }
   );
 });
@@ -497,47 +699,7 @@ app.get('/student/progress', auth, (req, res) => {
   );
 });
 
-/* SERVER */
-app.get('/', (req, res) => {
-  res.send('Backend Personal do Zero online 🚀');
-});
-
-app.patch('/me', auth, async (req, res) => {
-  const { name, phone, address, password } = req.body;
-
-  if (!name || name.trim().length < 2) {
-    return res.status(400).json({ error: 'Nome inválido.' });
-  }
-
-  if (password && password.length < 6) {
-    return res.status(400).json({ error: 'A senha deve ter pelo menos 6 caracteres.' });
-  }
-
-  if (password) {
-    const hash = await bcrypt.hash(password, 10);
-
-    db.run(
-      `UPDATE users SET name = ?, phone = ?, address = ?, password_hash = ? WHERE id = ?`,
-      [name, phone || null, address || null, hash, req.user.id],
-      function (err) {
-        if (err) return res.status(400).json({ error: err.message });
-
-        res.json({ success: true });
-      }
-    );
-  } else {
-    db.run(
-      `UPDATE users SET name = ?, phone = ?, address = ? WHERE id = ?`,
-      [name, phone || null, address || null, req.user.id],
-      function (err) {
-        if (err) return res.status(400).json({ error: err.message });
-
-        res.json({ success: true });
-      }
-    );
-  }
-});
-
+/* DEBUG */
 
 app.get('/debug/users', (req, res) => {
   db.all(
@@ -553,166 +715,12 @@ app.get('/debug/users', (req, res) => {
   );
 });
 
-app.get('/student/workshop', auth, (req, res) => {
-  db.get(
-    `SELECT * FROM workshops ORDER BY id DESC LIMIT 1`,
-    [],
-    (err, workshop) => {
-      if (err) return res.status(400).json({ error: err.message });
+/* SERVER */
 
-      if (!workshop) {
-        return res.json(null);
-      }
-
-      const now = new Date();
-      const eventDateTime = new Date(`${workshop.event_date}T${workshop.event_time}`);
-
-      const released = now >= eventDateTime;
-
-      db.all(
-        `
-        SELECT id, title, file_url
-        FROM workshop_materials
-        WHERE workshop_id = ?
-        AND visible_to_student = 1
-        `,
-        [workshop.id],
-        (err, materials) => {
-          if (err) return res.status(400).json({ error: err.message });
-
-          res.json({
-            ...workshop,
-            released,
-            materials: released ? materials : []
-          });
-        }
-      );
-    }
-  );
+app.get('/', (req, res) => {
+  res.send('Backend Personal do Zero online 🚀');
 });
 
-app.post('/admin/student-workshops', auth, adminOnly, (req, res) => {
-  const { user_id, workshop_id, event_datetime } = req.body;
-
-  if (!user_id || !workshop_id || !event_datetime) {
-    return res.status(400).json({
-      error: 'Informe aluno, workshop, data e horário.'
-    });
-  }
-
-  db.run(
-    `
-    INSERT INTO student_workshops
-    (user_id, workshop_id, event_datetime, access_status)
-    VALUES (?, ?, ?, 'active')
-    `,
-    [user_id, workshop_id, event_datetime],
-    function (err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
-      res.json({
-        success: true,
-        id: this.lastID
-      });
-    }
-  );
-});
-
-app.post('/admin/workshop/release', auth, adminOnly, (req, res) => {
-  const {
-    user_id,
-    event_datetime,
-    live_url,
-    material_url,
-    bonus_url
-  } = req.body;
-
-  if (!user_id || !event_datetime || !live_url) {
-    return res.status(400).json({
-      error: 'Informe aluno, data/hora e link da aula ao vivo.'
-    });
-  }
-
-  db.get(
-    `SELECT id FROM workshops WHERE title = ? LIMIT 1`,
-    ['Workshop Personal na Prática'],
-    (err, workshop) => {
-      if (err) return res.status(400).json({ error: err.message });
-
-      const criarVinculo = (workshopId) => {
-        db.run(
-          `
-          INSERT INTO student_workshops
-          (user_id, workshop_id, event_datetime, access_status)
-          VALUES (?, ?, ?, 'active')
-          `,
-          [user_id, workshopId, event_datetime],
-          function (err) {
-            if (err) return res.status(400).json({ error: err.message });
-
-            db.run(
-              `UPDATE workshops SET live_url = ? WHERE id = ?`,
-              [live_url, workshopId]
-            );
-
-            if (material_url) {
-              db.run(
-                `
-                INSERT INTO workshop_materials
-                (workshop_id, title, file_url, visible_to_student, release_mode)
-                VALUES (?, ?, ?, 1, 'on_start')
-                `,
-                [workshopId, 'Material do Aluno', material_url]
-              );
-            }
-
-            if (bonus_url) {
-              db.run(
-                `
-                INSERT INTO workshop_materials
-                (workshop_id, title, file_url, visible_to_student, release_mode)
-                VALUES (?, ?, ?, 1, 'on_start')
-                `,
-                [workshopId, 'Autodiagnóstico da Carreira', bonus_url]
-              );
-            }
-
-            res.json({
-              success: true,
-              message: 'Workshop liberado para o aluno.',
-              student_workshop_id: this.lastID
-            });
-          }
-        );
-      };
-
-      if (workshop) {
-        criarVinculo(workshop.id);
-      } else {
-        db.run(
-          `
-          INSERT INTO workshops
-          (title, description, live_url, status)
-          VALUES (?, ?, ?, 'scheduled')
-          `,
-          [
-            'Workshop Personal na Prática',
-            'Um encontro ao vivo de 2 horas para diagnosticar os principais gargalos da carreira.',
-            live_url
-          ],
-          function (err) {
-            if (err) return res.status(400).json({ error: err.message });
-
-            criarVinculo(this.lastID);
-          }
-        );
-      }
-    }
-  );
-});
-
-app.listen(PORT, () => {
-  console.log(`Servidor rodando em http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
