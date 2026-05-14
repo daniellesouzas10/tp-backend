@@ -552,6 +552,44 @@ app.get('/debug/users', (req, res) => {
     }
   );
 });
+
+app.get('/student/workshop', auth, (req, res) => {
+  db.get(
+    `SELECT * FROM workshops ORDER BY id DESC LIMIT 1`,
+    [],
+    (err, workshop) => {
+      if (err) return res.status(400).json({ error: err.message });
+
+      if (!workshop) {
+        return res.json(null);
+      }
+
+      const now = new Date();
+      const eventDateTime = new Date(`${workshop.event_date}T${workshop.event_time}`);
+
+      const released = now >= eventDateTime;
+
+      db.all(
+        `
+        SELECT id, title, file_url
+        FROM workshop_materials
+        WHERE workshop_id = ?
+        AND visible_to_student = 1
+        `,
+        [workshop.id],
+        (err, materials) => {
+          if (err) return res.status(400).json({ error: err.message });
+
+          res.json({
+            ...workshop,
+            released,
+            materials: released ? materials : []
+          });
+        }
+      );
+    }
+  );
+});
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
