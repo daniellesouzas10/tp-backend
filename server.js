@@ -590,6 +590,36 @@ app.get('/student/workshop', auth, (req, res) => {
     }
   );
 });
+
+app.post('/admin/student-workshops', auth, adminOnly, (req, res) => {
+  const { user_id, workshop_id, event_datetime } = req.body;
+
+  if (!user_id || !workshop_id || !event_datetime) {
+    return res.status(400).json({
+      error: 'Informe aluno, workshop, data e horário.'
+    });
+  }
+
+  db.run(
+    `
+    INSERT INTO student_workshops
+    (user_id, workshop_id, event_datetime, access_status)
+    VALUES (?, ?, ?, 'active')
+    `,
+    [user_id, workshop_id, event_datetime],
+    function (err) {
+      if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+
+      res.json({
+        success: true,
+        id: this.lastID
+      });
+    }
+  );
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
