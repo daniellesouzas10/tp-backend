@@ -620,6 +620,99 @@ app.post('/admin/student-workshops', auth, adminOnly, (req, res) => {
   );
 });
 
+app.post('/admin/workshop/release', auth, adminOnly, (req, res) => {
+  const {
+    user_id,
+    event_datetime,
+    live_url,
+    material_url,
+    bonus_url
+  } = req.body;
+
+  if (!user_id || !event_datetime || !live_url) {
+    return res.status(400).json({
+      error: 'Informe aluno, data/hora e link da aula ao vivo.'
+    });
+  }
+
+  db.get(
+    `SELECT id FROM workshops WHERE title = ? LIMIT 1`,
+    ['Workshop Personal na Prática'],
+    (err, workshop) => {
+      if (err) return res.status(400).json({ error: err.message });
+
+      const criarVinculo = (workshopId) => {
+        db.run(
+          `
+          INSERT INTO student_workshops
+          (user_id, workshop_id, event_datetime, access_status)
+          VALUES (?, ?, ?, 'active')
+          `,
+          [user_id, workshopId, event_datetime],
+          function (err) {
+            if (err) return res.status(400).json({ error: err.message });
+
+            db.run(
+              `UPDATE workshops SET live_url = ? WHERE id = ?`,
+              [live_url, workshopId]
+            );
+
+            if (material_url) {
+              db.run(
+                `
+                INSERT INTO workshop_materials
+                (workshop_id, title, file_url, visible_to_student, release_mode)
+                VALUES (?, ?, ?, 1, 'on_start')
+                `,
+                [workshopId, 'Material do Aluno', material_url]
+              );
+            }
+
+            if (bonus_url) {
+              db.run(
+                `
+                INSERT INTO workshop_materials
+                (workshop_id, title, file_url, visible_to_student, release_mode)
+                VALUES (?, ?, ?, 1, 'on_start')
+                `,
+                [workshopId, 'Autodiagnóstico da Carreira', bonus_url]
+              );
+            }
+
+            res.json({
+              success: true,
+              message: 'Workshop liberado para o aluno.',
+              student_workshop_id: this.lastID
+            });
+          }
+        );
+      };
+
+      if (workshop) {
+        criarVinculo(workshop.id);
+      } else {
+        db.run(
+          `
+          INSERT INTO workshops
+          (title, description, live_url, status)
+          VALUES (?, ?, ?, 'scheduled')
+          `,
+          [
+            'Workshop Personal na Prática',
+            'Um encontro ao vivo de 2 horas para diagnosticar os principais gargalos da carreira.',
+            live_url
+          ],
+          function (err) {
+            if (err) return res.status(400).json({ error: err.message });
+
+            criarVinculo(this.lastID);
+          }
+        );
+      }
+    }
+  );
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
