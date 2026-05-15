@@ -66,3 +66,48 @@ CREATE TABLE IF NOT EXISTS progress (
   progress_percent INTEGER DEFAULT 0,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS workshops (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT,
+  event_date TEXT,
+  event_time TEXT,
+  live_url TEXT,
+  replay_url TEXT,
+  status TEXT DEFAULT 'scheduled',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS workshop_materials (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  workshop_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  file_url TEXT,
+  visible_to_student INTEGER DEFAULT 1,
+  release_mode TEXT DEFAULT 'on_start',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS student_workshops (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  workshop_id INTEGER NOT NULL,
+  event_datetime TEXT NOT NULL,
+  access_status TEXT DEFAULT 'active',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS student_products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  product_type TEXT NOT NULL,
+  product_name TEXT NOT NULL,
+  release_datetime TEXT NOT NULL,
+  main_url TEXT,
+  material_url TEXT,
+  bonus_url TEXT,
+  notes TEXT,
+  access_status TEXT DEFAULT 'active',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
