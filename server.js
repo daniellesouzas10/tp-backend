@@ -433,6 +433,30 @@ app.post('/admin/product-release', auth, adminOnly, (req, res) => {
   );
 });
 
+/* ADMIN — EDITAR LIBERAÇÃO */
+
+app.patch('/admin/product-release/:id', auth, adminOnly, (req, res) => {
+  const { status, main_url, material_url, notes } = req.body;
+  const { id } = req.params;
+
+  db.run(
+    `UPDATE student_products
+     SET main_url = ?, material_url = ?, notes = ?, access_status = ?
+     WHERE id = ?`,
+    [
+      main_url || null,
+      material_url || null,
+      notes || null,
+      status === 'concluido' ? 'concluido' : 'active',
+      id
+    ],
+    function (err) {
+      if (err) return res.status(400).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
 /* ALUNO — MEUS DADOS */
 
 app.get('/me', auth, (req, res) => {
