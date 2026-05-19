@@ -23,6 +23,13 @@ db.exec(schema);
 db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN address TEXT`, () => {});
 
+// Colunas de config adicionadas após versão inicial
+db.run(`ALTER TABLE student_products ADD COLUMN imersao_config TEXT`, () => {});
+db.run(`ALTER TABLE student_products ADD COLUMN mentoria_config TEXT`, () => {});
+db.run(`ALTER TABLE student_products ADD COLUMN imersao_access_level INTEGER`, () => {});
+db.run(`ALTER TABLE student_products ADD COLUMN imersao_day_1_release TEXT`, () => {});
+db.run(`ALTER TABLE student_products ADD COLUMN imersao_day_2_release TEXT`, () => {});
+
 db.run(`
   CREATE TABLE IF NOT EXISTS student_products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -393,58 +400,35 @@ app.get('/admin/notices', auth, adminOnly, (req, res) => {
 
 app.post('/admin/product-release', auth, adminOnly, (req, res) => {
   const {
-    user_id,
-    product_type,
-    product_name,
-    release_datetime,
-    main_url,
-    material_url,
-    bonus_url,
-    notes
+    user_id, product_type, product_name, release_datetime,
+    main_url, material_url, bonus_url, notes,
+    imersao_config, mentoria_config,
+    imersao_access_level, imersao_day_1_release, imersao_day_2_release
   } = req.body;
 
   if (!user_id || !product_type || !product_name || !release_datetime) {
-    return res.status(400).json({
-      error: 'Informe aluno, produto, nome do produto e data/hora de liberação.'
-    });
+    return res.status(400).json({ error: 'Informe aluno, produto, nome do produto e data/hora de liberação.' });
   }
 
   db.run(
-    `
-    INSERT INTO student_products
-    (
-      user_id,
-      product_type,
-      product_name,
-      release_datetime,
-      main_url,
-      material_url,
-      bonus_url,
-      notes,
-      access_status
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
-    `,
+    `INSERT INTO student_products
+    (user_id, product_type, product_name, release_datetime,
+     main_url, material_url, bonus_url, notes, access_status,
+     imersao_config, mentoria_config,
+     imersao_access_level, imersao_day_1_release, imersao_day_2_release)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
     [
-      user_id,
-      product_type,
-      product_name,
-      release_datetime,
-      main_url || null,
-      material_url || null,
-      bonus_url || null,
-      notes || null
+      user_id, product_type, product_name, release_datetime,
+      main_url || null, material_url || null, bonus_url || null, notes || null,
+      imersao_config ? JSON.stringify(imersao_config) : null,
+      mentoria_config ? JSON.stringify(mentoria_config) : null,
+      imersao_access_level ?? null,
+      imersao_day_1_release || null,
+      imersao_day_2_release || null
     ],
     function (err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
-      res.json({
-        success: true,
-        id: this.lastID,
-        message: 'Produto liberado para o aluno.'
-      });
+      if (err) return res.status(400).json({ error: err.message });
+      res.json({ success: true, id: this.lastID, message: 'Produto liberado para o aluno.' });
     }
   );
 });
@@ -538,7 +522,9 @@ app.get('/student/products', auth, (req, res) => {
 
         return {
           ...product,
-          released: now >= releaseDate
+          released: now >= releaseDate,
+          imersao_config: product.imersao_config ? JSON.parse(product.imersao_config) : null,
+          mentoria_config: product.mentoria_config ? JSON.parse(product.mentoria_config) : null
         };
       });
 
