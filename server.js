@@ -24,6 +24,7 @@ db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN address TEXT`, () => {});
 
 // Colunas de config adicionadas após versão inicial
+db.run(`ALTER TABLE student_products ADD COLUMN curso_id INTEGER`, () => {});
 db.run(`ALTER TABLE student_products ADD COLUMN imersao_config TEXT`, () => {});
 db.run(`ALTER TABLE student_products ADD COLUMN mentoria_config TEXT`, () => {});
 db.run(`ALTER TABLE student_products ADD COLUMN imersao_access_level INTEGER`, () => {});
@@ -415,8 +416,9 @@ app.post('/admin/product-release', auth, adminOnly, (req, res) => {
     (user_id, product_type, product_name, release_datetime,
      main_url, material_url, bonus_url, notes, access_status,
      imersao_config, mentoria_config,
-     imersao_access_level, imersao_day_1_release, imersao_day_2_release)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
+     imersao_access_level, imersao_day_1_release, imersao_day_2_release,
+     curso_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
     [
       user_id, product_type, product_name, release_datetime,
       main_url || null, material_url || null, bonus_url || null, notes || null,
@@ -424,7 +426,8 @@ app.post('/admin/product-release', auth, adminOnly, (req, res) => {
       mentoria_config ? JSON.stringify(mentoria_config) : null,
       imersao_access_level ?? null,
       imersao_day_1_release || null,
-      imersao_day_2_release || null
+      imersao_day_2_release || null,
+      req.body.curso_id || null
     ],
     function (err) {
       if (err) return res.status(400).json({ error: err.message });
