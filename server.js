@@ -452,25 +452,56 @@ app.get('/admin/product-releases', auth, adminOnly, (req, res) => {
 /* ADMIN — EDITAR LIBERAÇÃO */
 
 app.patch('/admin/product-release/:id', auth, adminOnly, (req, res) => {
-  const { status, main_url, material_url, notes } = req.body;
+  const { status, main_url, material_url, notes, imersao_config_patch, mentoria_sessoes_patch } = req.body;
   const { id } = req.params;
 
-  db.run(
-    `UPDATE student_products
-     SET main_url = ?, material_url = ?, notes = ?, access_status = ?
-     WHERE id = ?`,
-    [
-      main_url || null,
-      material_url || null,
-      notes || null,
-      status === 'concluido' ? 'concluido' : 'active',
-      id
-    ],
-    function (err) {
-      if (err) return res.status(400).json({ error: err.message });
-      res.json({ success: true });
+  // Buscar registro atual para fazer merge do config
+  db.get(`SELECT * FROM student_products WHERE id = ?`, [id], (err, row) => {
+    if (err || !row) return res.status(404).json({ error: 'Liberação não encontrada.' });
+
+    let newImersaoConfig = row.imersao_config ? JSON.parse(row.imersao_config) : null;
+    let newMentoriaConfig = row.mentoria_config ? JSON.parse(row.mentoria_config) : null;
+
+    // Atualizar links da imersão por dia
+    if (imersao_config_patch && newImersaoConfig) {
+      const { link1, mat1, link2, mat2 } = imersao_config_patch;
+      if (!newImersaoConfig.day_1) newImersaoConfig.day_1 = {};
+      if (!newImersaoConfig.day_2) newImersaoConfig.day_2 = {};
+      if (link1 !== undefined) newImersaoConfig.day_1.link = link1 || null;
+      if (mat1  !== undefined) newImersaoConfig.day_1.material = mat1 || null;
+      if (link2 !== undefined) newImersaoConfig.day_2.link = link2 || null;
+      if (mat2  !== undefined) newImersaoConfig.day_2.material = mat2 || null;
     }
-  );
+
+    // Atualizar links das sessões de mentoria
+    if (mentoria_sessoes_patch && Array.isArray(newMentoriaConfig)) {
+      newMentoriaConfig = newMentoriaConfig.map((s, i) => ({
+        ...s,
+        linkPrincipal: mentoria_sessoes_patch[i]?.linkPrincipal ?? s.linkPrincipal,
+        material: mentoria_sessoes_patch[i]?.material ?? s.material
+      }));
+    }
+
+    db.run(
+      `UPDATE student_products
+       SET main_url = ?, material_url = ?, notes = ?, access_status = ?,
+           imersao_config = ?, mentoria_config = ?
+       WHERE id = ?`,
+      [
+        main_url !== undefined ? (main_url || null) : row.main_url,
+        material_url !== undefined ? (material_url || null) : row.material_url,
+        notes !== undefined ? (notes || null) : row.notes,
+        status === 'concluido' ? 'concluido' : 'active',
+        newImersaoConfig ? JSON.stringify(newImersaoConfig) : row.imersao_config,
+        newMentoriaConfig ? JSON.stringify(newMentoriaConfig) : row.mentoria_config,
+        id
+      ],
+      function (err) {
+        if (err) return res.status(400).json({ error: err.message });
+        res.json({ success: true });
+      }
+    );
+  });
 });
 
 /* ALUNO — MEUS DADOS */
