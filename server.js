@@ -433,6 +433,22 @@ app.post('/admin/product-release', auth, adminOnly, (req, res) => {
   );
 });
 
+/* ADMIN — LISTAR LIBERAÇÕES */
+
+app.get('/admin/product-releases', auth, adminOnly, (req, res) => {
+  db.all(
+    `SELECT sp.*, u.name AS student_name, u.email AS student_email
+     FROM student_products sp
+     LEFT JOIN users u ON u.id = sp.user_id
+     ORDER BY sp.created_at DESC`,
+    [],
+    (err, rows) => {
+      if (err) return res.status(400).json({ error: err.message });
+      res.json(rows);
+    }
+  );
+});
+
 /* ADMIN — EDITAR LIBERAÇÃO */
 
 app.patch('/admin/product-release/:id', auth, adminOnly, (req, res) => {
