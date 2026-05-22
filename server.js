@@ -14,6 +14,14 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET;
+
+/* =========================================================
+   UPLOADS
+========================================================= */
+
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const uploadDir = path.join(__dirname, 'uploads', 'mentoria');
@@ -23,12 +31,11 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
+  destination(req, file, cb) {
     cb(null, uploadDir);
   },
 
-  filename: function (req, file, cb) {
-
+  filename(req, file, cb) {
     const safeName = file.originalname
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
@@ -40,13 +47,8 @@ const storage = multer.diskStorage({
 
 const uploadMentoria = multer({
   storage,
-
-  limits: {
-    fileSize: 15 * 1024 * 1024
-  },
-
-  fileFilter: function (req, file, cb) {
-
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter(req, file, cb) {
     const allowed = [
       'application/pdf',
       'application/msword',
@@ -61,17 +63,27 @@ const uploadMentoria = multer({
   }
 });
 
-const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET;
+function uploadSingle(fieldName) {
+  return function (req, res, next) {
+    uploadMentoria.single(fieldName)(req, res, function (err) {
+      if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+      next();
+    });
+  };
+}
 
-/* INIT DB */
+/* =========================================================
+   INIT DB
+========================================================= */
+
 const schema = fs.readFileSync('./schema.sql', 'utf8');
 db.exec(schema);
 
 db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN address TEXT`, () => {});
 
-// Colunas de config adicionadas após versão inicial
 db.run(`ALTER TABLE student_products ADD COLUMN curso_id INTEGER`, () => {});
 db.run(`ALTER TABLE student_products ADD COLUMN imersao_config TEXT`, () => {});
 db.run(`ALTER TABLE student_products ADD COLUMN mentoria_config TEXT`, () => {});
@@ -95,7 +107,29 @@ db.run(`
   )
 `);
 
-/* MIDDLEWARE AUTH */
+db.run(`
+  CREATE TABLE IF NOT EXISTS mentoria_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    week_number INTEGER NOT NULL,
+    task_title TEXT,
+    task_file_url TEXT,
+    task_original_name TEXT,
+    task_uploaded_at DATETIME,
+    report_file_url TEXT,
+    report_original_name TEXT,
+    report_uploaded_at DATETIME,
+    status TEXT DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+/* =========================================================
+   AUTH
+========================================================= */
+
 function auth(req, res, next) {
   const header = req.headers.authorization;
 
@@ -122,11 +156,12 @@ function adminOnly(req, res, next) {
   next();
 }
 
-/* AUTH */
+/* =========================================================
+   AUTH ROUTES
+========================================================= */
 
 app.post('/auth/register-admin', async (req, res) => {
   const { name, email, password } = req.body;
-
   const hash = await bcrypt.hash(password, 10);
 
   db.run(
@@ -145,53 +180,50 @@ app.post('/auth/register-admin', async (req, res) => {
 app.post('/auth/login', (req, res) => {
   const { email, password } = req.body;
 
-  db.get(
-    `SELECT * FROM users WHERE email = ?`,
-    [email],
-    async (err, user) => {
-      if (err || !user) {
-        return res.status(401).json({ error: 'Login inválido.' });
-      }
-
-      const valid = await bcrypt.compare(password, user.password_hash);
-
-      if (!valid) {
-        return res.status(401).json({ error: 'Senha inválida.' });
-      }
-
-      if (user.status !== 'active') {
-        return res.status(403).json({ error: 'Usuário bloqueado.' });
-      }
-
-      const token = jwt.sign(
-        {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role
-        },
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      res.json({
-        token,
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role
-        }
-      });
+  db.get(`SELECT * FROM users WHERE email = ?`, [email], async (err, user) => {
+    if (err || !user) {
+      return res.status(401).json({ error: 'Login inválido.' });
     }
-  );
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+
+    if (!valid) {
+      return res.status(401).json({ error: 'Senha inválida.' });
+    }
+
+    if (user.status !== 'active') {
+      return res.status(403).json({ error: 'Usuário bloqueado.' });
+    }
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+  });
 });
 
-/* ADMIN — ALUNOS */
+/* =========================================================
+   ADMIN — ALUNOS
+========================================================= */
 
 app.post('/admin/students', auth, adminOnly, async (req, res) => {
   const { name, email, password, plan_id } = req.body;
-
   const hash = await bcrypt.hash(password, 10);
 
   db.run(
@@ -205,19 +237,10 @@ app.post('/admin/students', auth, adminOnly, async (req, res) => {
       const userId = this.lastID;
 
       if (plan_id) {
-        db.run(
-          `INSERT INTO user_plans (user_id, plan_id) VALUES (?, ?)`,
-          [userId, plan_id]
-        );
+        db.run(`INSERT INTO user_plans (user_id, plan_id) VALUES (?, ?)`, [userId, plan_id]);
       }
 
-      res.json({
-        id: userId,
-        name,
-        email,
-        role: 'student',
-        plan_id
-      });
+      res.json({ id: userId, name, email, role: 'student', plan_id });
     }
   );
 });
@@ -239,10 +262,7 @@ app.get('/admin/students', auth, adminOnly, (req, res) => {
     `,
     [],
     (err, rows) => {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
+      if (err) return res.status(400).json({ error: err.message });
       res.json(rows);
     }
   );
@@ -251,70 +271,50 @@ app.get('/admin/students', auth, adminOnly, (req, res) => {
 app.patch('/admin/students/:id/status', auth, adminOnly, (req, res) => {
   const { status } = req.body;
 
-  db.run(
-    `UPDATE users SET status = ? WHERE id = ?`,
-    [status, req.params.id],
-    function (err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
-      res.json({ success: true });
-    }
-  );
+  db.run(`UPDATE users SET status = ? WHERE id = ?`, [status, req.params.id], function (err) {
+    if (err) return res.status(400).json({ error: err.message });
+    res.json({ success: true });
+  });
 });
 
 app.patch('/admin/students/:id/plan', auth, adminOnly, (req, res) => {
   const { plan_id } = req.body;
 
-  db.run(
-    `DELETE FROM user_plans WHERE user_id = ?`,
-    [req.params.id],
-    () => {
-      db.run(
-        `INSERT INTO user_plans (user_id, plan_id) VALUES (?, ?)`,
-        [req.params.id, plan_id],
-        function (err) {
-          if (err) {
-            return res.status(400).json({ error: err.message });
-          }
-
-          res.json({ success: true });
-        }
-      );
-    }
-  );
+  db.run(`DELETE FROM user_plans WHERE user_id = ?`, [req.params.id], () => {
+    db.run(
+      `INSERT INTO user_plans (user_id, plan_id) VALUES (?, ?)`,
+      [req.params.id, plan_id],
+      function (err) {
+        if (err) return res.status(400).json({ error: err.message });
+        res.json({ success: true });
+      }
+    );
+  });
 });
 
-/* ADMIN — PLANOS */
+/* =========================================================
+   ADMIN — PLANOS
+========================================================= */
 
 app.post('/admin/plans', auth, adminOnly, (req, res) => {
   const { name, description } = req.body;
 
-  db.run(
-    `INSERT INTO plans (name, description) VALUES (?, ?)`,
-    [name, description],
-    function (err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
-      res.json({ id: this.lastID, name, description });
-    }
-  );
+  db.run(`INSERT INTO plans (name, description) VALUES (?, ?)`, [name, description], function (err) {
+    if (err) return res.status(400).json({ error: err.message });
+    res.json({ id: this.lastID, name, description });
+  });
 });
 
 app.get('/admin/plans', auth, adminOnly, (req, res) => {
   db.all(`SELECT * FROM plans ORDER BY id DESC`, [], (err, rows) => {
-    if (err) {
-      return res.status(400).json({ error: err.message });
-    }
-
+    if (err) return res.status(400).json({ error: err.message });
     res.json(rows);
   });
 });
 
-/* ADMIN — MÓDULOS */
+/* =========================================================
+   ADMIN — MÓDULOS / AULAS / ACESSO
+========================================================= */
 
 app.post('/admin/modules', auth, adminOnly, (req, res) => {
   const { title, description, order_number, status } = req.body;
@@ -323,10 +323,7 @@ app.post('/admin/modules', auth, adminOnly, (req, res) => {
     `INSERT INTO modules (title, description, order_number, status) VALUES (?, ?, ?, ?)`,
     [title, description, order_number, status || 'published'],
     function (err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
+      if (err) return res.status(400).json({ error: err.message });
       res.json({ id: this.lastID, title, description });
     }
   );
@@ -334,26 +331,13 @@ app.post('/admin/modules', auth, adminOnly, (req, res) => {
 
 app.get('/admin/modules', auth, adminOnly, (req, res) => {
   db.all(`SELECT * FROM modules ORDER BY order_number ASC`, [], (err, rows) => {
-    if (err) {
-      return res.status(400).json({ error: err.message });
-    }
-
+    if (err) return res.status(400).json({ error: err.message });
     res.json(rows);
   });
 });
 
-/* ADMIN — AULAS */
-
 app.post('/admin/lessons', auth, adminOnly, (req, res) => {
-  const {
-    module_id,
-    title,
-    video_url,
-    description,
-    duration,
-    order_number,
-    status
-  } = req.body;
+  const { module_id, title, video_url, description, duration, order_number, status } = req.body;
 
   db.run(
     `
@@ -361,20 +345,9 @@ app.post('/admin/lessons', auth, adminOnly, (req, res) => {
     (module_id, title, video_url, description, duration, order_number, status)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     `,
-    [
-      module_id,
-      title,
-      video_url,
-      description,
-      duration,
-      order_number,
-      status || 'published'
-    ],
+    [module_id, title, video_url, description, duration, order_number, status || 'published'],
     function (err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
+      if (err) return res.status(400).json({ error: err.message });
       res.json({ id: this.lastID, title });
     }
   );
@@ -390,16 +363,11 @@ app.get('/admin/lessons', auth, adminOnly, (req, res) => {
     `,
     [],
     (err, rows) => {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
+      if (err) return res.status(400).json({ error: err.message });
       res.json(rows);
     }
   );
 });
-
-/* ADMIN — LIBERAR CONTEÚDO PARA PLANO */
 
 app.post('/admin/access', auth, adminOnly, (req, res) => {
   const { plan_id, module_id, lesson_id } = req.body;
@@ -408,16 +376,15 @@ app.post('/admin/access', auth, adminOnly, (req, res) => {
     `INSERT INTO plan_access (plan_id, module_id, lesson_id) VALUES (?, ?, ?)`,
     [plan_id, module_id || null, lesson_id || null],
     function (err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
+      if (err) return res.status(400).json({ error: err.message });
       res.json({ success: true, id: this.lastID });
     }
   );
 });
 
-/* ADMIN — AVISOS */
+/* =========================================================
+   ADMIN — AVISOS
+========================================================= */
 
 app.post('/admin/notices', auth, adminOnly, (req, res) => {
   const { title, message, target, type } = req.body;
@@ -426,10 +393,7 @@ app.post('/admin/notices', auth, adminOnly, (req, res) => {
     `INSERT INTO notices (title, message, target, type) VALUES (?, ?, ?, ?)`,
     [title, message, target || 'all', type || 'info'],
     function (err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
+      if (err) return res.status(400).json({ error: err.message });
       res.json({ id: this.lastID, title, message });
     }
   );
@@ -437,39 +401,57 @@ app.post('/admin/notices', auth, adminOnly, (req, res) => {
 
 app.get('/admin/notices', auth, adminOnly, (req, res) => {
   db.all(`SELECT * FROM notices ORDER BY created_at DESC`, [], (err, rows) => {
-    if (err) {
-      return res.status(400).json({ error: err.message });
-    }
-
+    if (err) return res.status(400).json({ error: err.message });
     res.json(rows);
   });
 });
 
-/* ADMIN — LIBERAÇÃO UNIFICADA DE PRODUTO */
+/* =========================================================
+   ADMIN — PRODUTOS / LIBERAÇÕES
+========================================================= */
 
 app.post('/admin/product-release', auth, adminOnly, (req, res) => {
   const {
-    user_id, product_type, product_name, release_datetime,
-    main_url, material_url, bonus_url, notes,
-    imersao_config, mentoria_config,
-    imersao_access_level, imersao_day_1_release, imersao_day_2_release
+    user_id,
+    product_type,
+    product_name,
+    release_datetime,
+    main_url,
+    material_url,
+    bonus_url,
+    notes,
+    imersao_config,
+    mentoria_config,
+    imersao_access_level,
+    imersao_day_1_release,
+    imersao_day_2_release
   } = req.body;
 
   if (!user_id || !product_type || !product_name || !release_datetime) {
-    return res.status(400).json({ error: 'Informe aluno, produto, nome do produto e data/hora de liberação.' });
+    return res.status(400).json({
+      error: 'Informe aluno, produto, nome do produto e data/hora de liberação.'
+    });
   }
 
   db.run(
-    `INSERT INTO student_products
+    `
+    INSERT INTO student_products
     (user_id, product_type, product_name, release_datetime,
      main_url, material_url, bonus_url, notes, access_status,
      imersao_config, mentoria_config,
      imersao_access_level, imersao_day_1_release, imersao_day_2_release,
      curso_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+    `,
     [
-      user_id, product_type, product_name, release_datetime,
-      main_url || null, material_url || null, bonus_url || null, notes || null,
+      user_id,
+      product_type,
+      product_name,
+      release_datetime,
+      main_url || null,
+      material_url || null,
+      bonus_url || null,
+      notes || null,
       imersao_config ? JSON.stringify(imersao_config) : null,
       mentoria_config ? JSON.stringify(mentoria_config) : null,
       imersao_access_level ?? null,
@@ -484,14 +466,14 @@ app.post('/admin/product-release', auth, adminOnly, (req, res) => {
   );
 });
 
-/* ADMIN — LISTAR LIBERAÇÕES */
-
 app.get('/admin/product-releases', auth, adminOnly, (req, res) => {
   db.all(
-    `SELECT sp.*, u.name AS student_name, u.email AS student_email
-     FROM student_products sp
-     LEFT JOIN users u ON u.id = sp.user_id
-     ORDER BY sp.created_at DESC`,
+    `
+    SELECT sp.*, u.name AS student_name, u.email AS student_email
+    FROM student_products sp
+    LEFT JOIN users u ON u.id = sp.user_id
+    ORDER BY sp.created_at DESC
+    `,
     [],
     (err, rows) => {
       if (err) return res.status(400).json({ error: err.message });
@@ -500,31 +482,28 @@ app.get('/admin/product-releases', auth, adminOnly, (req, res) => {
   );
 });
 
-/* ADMIN — EDITAR LIBERAÇÃO */
-
 app.patch('/admin/product-release/:id', auth, adminOnly, (req, res) => {
   const { status, main_url, material_url, notes, imersao_config_patch, mentoria_sessoes_patch } = req.body;
   const { id } = req.params;
 
-  // Buscar registro atual para fazer merge do config
   db.get(`SELECT * FROM student_products WHERE id = ?`, [id], (err, row) => {
     if (err || !row) return res.status(404).json({ error: 'Liberação não encontrada.' });
 
     let newImersaoConfig = row.imersao_config ? JSON.parse(row.imersao_config) : null;
     let newMentoriaConfig = row.mentoria_config ? JSON.parse(row.mentoria_config) : null;
 
-    // Atualizar links da imersão por dia
     if (imersao_config_patch && newImersaoConfig) {
       const { link1, mat1, link2, mat2 } = imersao_config_patch;
+
       if (!newImersaoConfig.day_1) newImersaoConfig.day_1 = {};
       if (!newImersaoConfig.day_2) newImersaoConfig.day_2 = {};
+
       if (link1 !== undefined) newImersaoConfig.day_1.link = link1 || null;
-      if (mat1  !== undefined) newImersaoConfig.day_1.material = mat1 || null;
+      if (mat1 !== undefined) newImersaoConfig.day_1.material = mat1 || null;
       if (link2 !== undefined) newImersaoConfig.day_2.link = link2 || null;
-      if (mat2  !== undefined) newImersaoConfig.day_2.material = mat2 || null;
+      if (mat2 !== undefined) newImersaoConfig.day_2.material = mat2 || null;
     }
 
-    // Atualizar links das sessões de mentoria
     if (mentoria_sessoes_patch && Array.isArray(newMentoriaConfig)) {
       newMentoriaConfig = newMentoriaConfig.map((s, i) => ({
         ...s,
@@ -534,28 +513,32 @@ app.patch('/admin/product-release/:id', auth, adminOnly, (req, res) => {
     }
 
     db.run(
-      `UPDATE student_products
-       SET main_url = ?, material_url = ?, notes = ?, access_status = ?,
-           imersao_config = ?, mentoria_config = ?
-       WHERE id = ?`,
+      `
+      UPDATE student_products
+      SET main_url = ?, material_url = ?, notes = ?, access_status = ?,
+          imersao_config = ?, mentoria_config = ?
+      WHERE id = ?
+      `,
       [
-        main_url !== undefined ? (main_url || null) : row.main_url,
-        material_url !== undefined ? (material_url || null) : row.material_url,
-        notes !== undefined ? (notes || null) : row.notes,
+        main_url !== undefined ? main_url || null : row.main_url,
+        material_url !== undefined ? material_url || null : row.material_url,
+        notes !== undefined ? notes || null : row.notes,
         status === 'concluido' ? 'concluido' : 'active',
         newImersaoConfig ? JSON.stringify(newImersaoConfig) : row.imersao_config,
         newMentoriaConfig ? JSON.stringify(newMentoriaConfig) : row.mentoria_config,
         id
       ],
-      function (err) {
-        if (err) return res.status(400).json({ error: err.message });
+      function (err2) {
+        if (err2) return res.status(400).json({ error: err2.message });
         res.json({ success: true });
       }
     );
   });
 });
 
-/* ALUNO — MEUS DADOS */
+/* =========================================================
+   ALUNO — MEUS DADOS / PRODUTOS
+========================================================= */
 
 app.get('/me', auth, (req, res) => {
   db.get(
@@ -575,10 +558,7 @@ app.get('/me', auth, (req, res) => {
     `,
     [req.user.id],
     (err, row) => {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
+      if (err) return res.status(400).json({ error: err.message });
       res.json(row);
     }
   );
@@ -603,7 +583,6 @@ app.patch('/me', auth, async (req, res) => {
       [name, phone || null, address || null, hash, req.user.id],
       function (err) {
         if (err) return res.status(400).json({ error: err.message });
-
         res.json({ success: true });
       }
     );
@@ -613,14 +592,11 @@ app.patch('/me', auth, async (req, res) => {
       [name, phone || null, address || null, req.user.id],
       function (err) {
         if (err) return res.status(400).json({ error: err.message });
-
         res.json({ success: true });
       }
     );
   }
 });
-
-/* ALUNO — PRODUTOS LIBERADOS */
 
 app.get('/student/products', auth, (req, res) => {
   db.all(
@@ -633,9 +609,7 @@ app.get('/student/products', auth, (req, res) => {
     `,
     [req.user.id],
     (err, products) => {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
+      if (err) return res.status(400).json({ error: err.message });
 
       const now = new Date();
 
@@ -655,8 +629,6 @@ app.get('/student/products', auth, (req, res) => {
   );
 });
 
-/* COMPATIBILIDADE — WORKSHOP DO ALUNO */
-
 app.get('/student/workshop', auth, (req, res) => {
   db.get(
     `
@@ -670,13 +642,8 @@ app.get('/student/workshop', auth, (req, res) => {
     `,
     [req.user.id],
     (err, product) => {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
-      if (!product) {
-        return res.json(null);
-      }
+      if (err) return res.status(400).json({ error: err.message });
+      if (!product) return res.json(null);
 
       const now = new Date();
       const releaseDate = new Date(product.release_datetime);
@@ -693,26 +660,14 @@ app.get('/student/workshop', auth, (req, res) => {
         released,
         materials: released
           ? [
-              product.material_url
-                ? {
-                    title: 'Material do Aluno',
-                    file_url: product.material_url
-                  }
-                : null,
-              product.bonus_url
-                ? {
-                    title: 'Autodiagnóstico da Carreira',
-                    file_url: product.bonus_url
-                  }
-                : null
+              product.material_url ? { title: 'Material do Aluno', file_url: product.material_url } : null,
+              product.bonus_url ? { title: 'Autodiagnóstico da Carreira', file_url: product.bonus_url } : null
             ].filter(Boolean)
           : []
       });
     }
   );
 });
-
-/* ALUNO — CONTEÚDOS LIBERADOS */
 
 app.get('/student/content', auth, (req, res) => {
   db.all(
@@ -737,37 +692,55 @@ app.get('/student/content', auth, (req, res) => {
     `,
     [req.user.id],
     (err, rows) => {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
+      if (err) return res.status(400).json({ error: err.message });
       res.json(rows);
     }
   );
 });
 
-/* ALUNO — AVISOS */
+/* =========================================================
+   ALUNO — AVISOS / PROGRESSO
+========================================================= */
 
 app.get('/student/notices', auth, (req, res) => {
+  const userTarget = `user_${req.user.id}`;
+
   db.all(
     `
-    SELECT * FROM notices
+    SELECT *
+    FROM notices
     WHERE target = 'all'
+    OR target = ?
     ORDER BY created_at DESC
-    LIMIT 10
+    LIMIT 20
     `,
-    [],
+    [userTarget],
     (err, rows) => {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
+      if (err) return res.status(400).json({ error: err.message });
       res.json(rows);
     }
   );
 });
 
-/* ALUNO — PROGRESSO */
+app.get('/student/notifications', auth, (req, res) => {
+  const userTarget = `user_${req.user.id}`;
+
+  db.all(
+    `
+    SELECT *
+    FROM notices
+    WHERE target = 'all'
+    OR target = ?
+    ORDER BY created_at DESC
+    LIMIT 20
+    `,
+    [userTarget],
+    (err, rows) => {
+      if (err) return res.status(400).json({ error: err.message });
+      res.json(rows.map(r => ({ ...r, read: false })));
+    }
+  );
+});
 
 app.post('/student/progress', auth, (req, res) => {
   const { lesson_id, completed, progress_percent } = req.body;
@@ -777,236 +750,256 @@ app.post('/student/progress', auth, (req, res) => {
     INSERT INTO progress (user_id, lesson_id, completed, progress_percent)
     VALUES (?, ?, ?, ?)
     `,
-    [
-      req.user.id,
-      lesson_id,
-      completed ? 1 : 0,
-      progress_percent || 0
-    ],
+    [req.user.id, lesson_id, completed ? 1 : 0, progress_percent || 0],
     function (err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
+      if (err) return res.status(400).json({ error: err.message });
       res.json({ success: true });
     }
   );
 });
 
 app.get('/student/progress', auth, (req, res) => {
-  db.all(
-    `SELECT * FROM progress WHERE user_id = ?`,
-    [req.user.id],
-    (err, rows) => {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
-      res.json(rows);
-    }
-  );
-});
-
-/* DEBUG */
-
-app.get('/debug/users', (req, res) => {
-  db.all(
-    `SELECT id, name, email, role, status FROM users`,
-    [],
-    (err, rows) => {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-
-      res.json(rows);
-    }
-  );
-});
-
-/* SERVER */
-
-app.get('/', (req, res) => {
-  res.send('Backend Personal do Zero online 🚀');
+  db.all(`SELECT * FROM progress WHERE user_id = ?`, [req.user.id], (err, rows) => {
+    if (err) return res.status(400).json({ error: err.message });
+    res.json(rows);
+  });
 });
 
 /* =========================================================
    MENTORIA — TAREFAS E RELATÓRIOS
 ========================================================= */
 
-/* LISTAR TAREFAS DO ALUNO */
 app.get('/student/mentoria-tasks', auth, (req, res) => {
-
-  db.all(`
+  db.all(
+    `
     SELECT *
     FROM mentoria_tasks
     WHERE user_id = ?
     ORDER BY week_number ASC
-  `,
-  [req.user.id],
-  (err, rows) => {
-
-    if (err) {
-      return res.status(400).json({
-        error: err.message
-      });
-    }
-
-    res.json(rows);
-  });
-});
-
-
-/* ALUNO ENVIA TAREFA */
-app.post(
-  '/student/mentoria-tasks/upload',
-  auth,
-  uploadMentoria.single('task_file'),
-
-  (req, res) => {
-
-    const {
-      product_id,
-      week_number,
-      task_title
-    } = req.body;
-
-    if (!product_id || !week_number) {
-
-      return res.status(400).json({
-        error:'Produto e semana obrigatórios'
-      });
-    }
-
-    if (!req.file) {
-
-      return res.status(400).json({
-        error:'Arquivo não enviado'
-      });
-    }
-
-    const fileUrl =
-      `/uploads/mentoria/${req.file.filename}`;
-
-    db.run(`
-      INSERT INTO mentoria_tasks (
-        user_id,
-        product_id,
-        week_number,
-        task_title,
-        task_file_url,
-        task_original_name,
-        task_uploaded_at,
-        status
-      )
-
-      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'task_uploaded')
-
-      ON CONFLICT(user_id, product_id, week_number)
-
-      DO UPDATE SET
-
-        task_title = excluded.task_title,
-        task_file_url = excluded.task_file_url,
-        task_original_name = excluded.task_original_name,
-        task_uploaded_at = CURRENT_TIMESTAMP,
-        status = 'task_uploaded',
-        updated_at = CURRENT_TIMESTAMP
     `,
-    [
-      req.user.id,
-      product_id,
-      week_number,
-      task_title || `Tarefa semana ${week_number}`,
-      fileUrl,
-      req.file.originalname
-    ],
-
-    function(err){
-
-      if(err){
-
-        return res.status(400).json({
-          error: err.message
-        });
-      }
-
-      res.json({
-        success:true,
-        file_url:fileUrl,
-        original_name:req.file.originalname,
-        status:'task_uploaded'
-      });
-    });
+    [req.user.id],
+    (err, rows) => {
+      if (err) return res.status(400).json({ error: err.message });
+      res.json(rows);
+    }
+  );
 });
 
+app.post('/student/mentoria-tasks/upload', auth, uploadSingle('task_file'), (req, res) => {
+  const { product_id, week_number, task_title } = req.body;
 
-/* ADMIN LISTA TAREFAS */
+  if (!product_id || !week_number) {
+    return res.status(400).json({ error: 'Produto e semana são obrigatórios.' });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'Arquivo não enviado.' });
+  }
+
+  const fileUrl = `/uploads/mentoria/${req.file.filename}`;
+
+  db.get(
+    `
+    SELECT id
+    FROM mentoria_tasks
+    WHERE user_id = ?
+    AND product_id = ?
+    AND week_number = ?
+    `,
+    [req.user.id, product_id, week_number],
+    (err, existing) => {
+      if (err) return res.status(400).json({ error: err.message });
+
+      if (existing) {
+        db.run(
+          `
+          UPDATE mentoria_tasks
+          SET task_title = ?,
+              task_file_url = ?,
+              task_original_name = ?,
+              task_uploaded_at = CURRENT_TIMESTAMP,
+              status = 'task_uploaded',
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+          `,
+          [
+            task_title || `Tarefa da semana ${week_number}`,
+            fileUrl,
+            req.file.originalname,
+            existing.id
+          ],
+          function (err2) {
+            if (err2) return res.status(400).json({ error: err2.message });
+
+            res.json({
+              success: true,
+              id: existing.id,
+              file_url: fileUrl,
+              original_name: req.file.originalname,
+              status: 'task_uploaded'
+            });
+          }
+        );
+      } else {
+        db.run(
+          `
+          INSERT INTO mentoria_tasks
+          (user_id, product_id, week_number, task_title, task_file_url, task_original_name, task_uploaded_at, status)
+          VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'task_uploaded')
+          `,
+          [
+            req.user.id,
+            product_id,
+            week_number,
+            task_title || `Tarefa da semana ${week_number}`,
+            fileUrl,
+            req.file.originalname
+          ],
+          function (err3) {
+            if (err3) return res.status(400).json({ error: err3.message });
+
+            res.json({
+              success: true,
+              id: this.lastID,
+              file_url: fileUrl,
+              original_name: req.file.originalname,
+              status: 'task_uploaded'
+            });
+          }
+        );
+      }
+    }
+  );
+});
+
 app.get('/admin/mentoria-tasks', auth, adminOnly, (req, res) => {
-
-  db.all(`
+  db.all(
+    `
     SELECT
-
       mt.*,
-
       u.name AS student_name,
       u.email AS student_email,
-
       sp.product_name
-
     FROM mentoria_tasks mt
-
-    LEFT JOIN users u
-      ON u.id = mt.user_id
-
-    LEFT JOIN student_products sp
-      ON sp.id = mt.product_id
-
+    LEFT JOIN users u ON u.id = mt.user_id
+    LEFT JOIN student_products sp ON sp.id = mt.product_id
     ORDER BY mt.updated_at DESC
-  `,
-  [],
-  (err, rows) => {
-
-    if(err){
-
-      return res.status(400).json({
-        error: err.message
-      });
+    `,
+    [],
+    (err, rows) => {
+      if (err) return res.status(400).json({ error: err.message });
+      res.json(rows);
     }
+  );
+});
 
+app.post('/admin/mentoria-tasks/:id/report', auth, adminOnly, uploadSingle('report_file'), (req, res) => {
+  const { id } = req.params;
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'Relatório não enviado.' });
+  }
+
+  const fileUrl = `/uploads/mentoria/${req.file.filename}`;
+
+  db.get(
+    `
+    SELECT
+      mt.*,
+      sp.product_name
+    FROM mentoria_tasks mt
+    LEFT JOIN student_products sp ON sp.id = mt.product_id
+    WHERE mt.id = ?
+    `,
+    [id],
+    (err, task) => {
+      if (err || !task) {
+        return res.status(404).json({ error: 'Tarefa não encontrada.' });
+      }
+
+      db.run(
+        `
+        UPDATE mentoria_tasks
+        SET report_file_url = ?,
+            report_original_name = ?,
+            report_uploaded_at = CURRENT_TIMESTAMP,
+            status = 'report_uploaded',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        `,
+        [fileUrl, req.file.originalname, id],
+        function (err2) {
+          if (err2) return res.status(400).json({ error: err2.message });
+
+          const now = new Date();
+          const dataHora = now.toLocaleString('pt-BR', {
+            timeZone: 'America/Sao_Paulo',
+            dateStyle: 'short',
+            timeStyle: 'short'
+          });
+
+          db.run(
+            `
+            INSERT INTO notices (title, message, target, type)
+            VALUES (?, ?, ?, ?)
+            `,
+            [
+              `Relatório disponível — Semana ${String(task.week_number).padStart(2, '0')}`,
+              `Seu relatório da ${task.product_name || 'Mentoria'} referente à Semana ${String(task.week_number).padStart(2, '0')} foi enviado em ${dataHora}.`,
+              `user_${task.user_id}`,
+              'mentoria'
+            ],
+            () => {}
+          );
+
+          res.json({
+            success: true,
+            file_url: fileUrl,
+            original_name: req.file.originalname,
+            status: 'report_uploaded'
+          });
+        }
+      );
+    }
+  );
+});
+
+/* Compatibilidade com admin antigo, caso alguma tela chame /api */
+app.get('/api/mentoria/tasks', auth, adminOnly, (req, res) => {
+  db.all(
+    `
+    SELECT
+      mt.*,
+      u.name AS student_name,
+      u.email AS student_email,
+      sp.product_name
+    FROM mentoria_tasks mt
+    LEFT JOIN users u ON u.id = mt.user_id
+    LEFT JOIN student_products sp ON sp.id = mt.product_id
+    ORDER BY mt.updated_at DESC
+    `,
+    [],
+    (err, rows) => {
+      if (err) return res.status(400).json({ error: err.message });
+      res.json(rows);
+    }
+  );
+});
+
+/* =========================================================
+   DEBUG / ROOT / SERVER
+========================================================= */
+
+app.get('/debug/users', (req, res) => {
+  db.all(`SELECT id, name, email, role, status FROM users`, [], (err, rows) => {
+    if (err) return res.status(400).json({ error: err.message });
     res.json(rows);
   });
 });
 
-
-/* PROFESSOR ENVIA RELATÓRIO */
-app.post(
-  '/admin/mentoria-tasks/:id/report',
-
-  auth,
-  adminOnly,
-
-  uploadMentoria.single('report_file'),
-
-  (req, res) => {
-
-    const { id } = req.params;
-
-    if(!req.file){
-
-      return res.status(400).json({
-        error:'Relatório não enviado'
-      });
-    }
-
-    const fileUrl =
-      `/uploads/mentoria/${req.file.filename}`;
-
-    db.run(`
-      UPDATE mentoria_tasks
-
-      SET
-
-       
+app.get('/', (req, res) => {
+  res.send('Backend Personal do Zero online');
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor rodando na porta ${PORT}`);
