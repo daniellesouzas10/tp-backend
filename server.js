@@ -5,6 +5,8 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
+const path = require('path');
+const multer = require('multer');
 
 const db = require('./database');
 
@@ -12,6 +14,52 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+const uploadDir = path.join(__dirname, 'uploads', 'mentoria');
+
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+
+  filename: function (req, file, cb) {
+
+    const safeName = file.originalname
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9.\-_]/g, '_');
+
+    cb(null, `${Date.now()}-${safeName}`);
+  }
+});
+
+const uploadMentoria = multer({
+  storage,
+
+  limits: {
+    fileSize: 15 * 1024 * 1024
+  },
+
+  fileFilter: function (req, file, cb) {
+
+    const allowed = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error('Envie apenas PDF, DOC ou DOCX.'));
+    }
+
+    cb(null, true);
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -780,6 +828,185 @@ app.get('/debug/users', (req, res) => {
 app.get('/', (req, res) => {
   res.send('Backend Personal do Zero online 🚀');
 });
+
+/* =========================================================
+   MENTORIA — TAREFAS E RELATÓRIOS
+========================================================= */
+
+/* LISTAR TAREFAS DO ALUNO */
+app.get('/student/mentoria-tasks', auth, (req, res) => {
+
+  db.all(`
+    SELECT *
+    FROM mentoria_tasks
+    WHERE user_id = ?
+    ORDER BY week_number ASC
+  `,
+  [req.user.id],
+  (err, rows) => {
+
+    if (err) {
+      return res.status(400).json({
+        error: err.message
+      });
+    }
+
+    res.json(rows);
+  });
+});
+
+
+/* ALUNO ENVIA TAREFA */
+app.post(
+  '/student/mentoria-tasks/upload',
+  auth,
+  uploadMentoria.single('task_file'),
+
+  (req, res) => {
+
+    const {
+      product_id,
+      week_number,
+      task_title
+    } = req.body;
+
+    if (!product_id || !week_number) {
+
+      return res.status(400).json({
+        error:'Produto e semana obrigatórios'
+      });
+    }
+
+    if (!req.file) {
+
+      return res.status(400).json({
+        error:'Arquivo não enviado'
+      });
+    }
+
+    const fileUrl =
+      `/uploads/mentoria/${req.file.filename}`;
+
+    db.run(`
+      INSERT INTO mentoria_tasks (
+        user_id,
+        product_id,
+        week_number,
+        task_title,
+        task_file_url,
+        task_original_name,
+        task_uploaded_at,
+        status
+      )
+
+      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'task_uploaded')
+
+      ON CONFLICT(user_id, product_id, week_number)
+
+      DO UPDATE SET
+
+        task_title = excluded.task_title,
+        task_file_url = excluded.task_file_url,
+        task_original_name = excluded.task_original_name,
+        task_uploaded_at = CURRENT_TIMESTAMP,
+        status = 'task_uploaded',
+        updated_at = CURRENT_TIMESTAMP
+    `,
+    [
+      req.user.id,
+      product_id,
+      week_number,
+      task_title || `Tarefa semana ${week_number}`,
+      fileUrl,
+      req.file.originalname
+    ],
+
+    function(err){
+
+      if(err){
+
+        return res.status(400).json({
+          error: err.message
+        });
+      }
+
+      res.json({
+        success:true,
+        file_url:fileUrl,
+        original_name:req.file.originalname,
+        status:'task_uploaded'
+      });
+    });
+});
+
+
+/* ADMIN LISTA TAREFAS */
+app.get('/admin/mentoria-tasks', auth, adminOnly, (req, res) => {
+
+  db.all(`
+    SELECT
+
+      mt.*,
+
+      u.name AS student_name,
+      u.email AS student_email,
+
+      sp.product_name
+
+    FROM mentoria_tasks mt
+
+    LEFT JOIN users u
+      ON u.id = mt.user_id
+
+    LEFT JOIN student_products sp
+      ON sp.id = mt.product_id
+
+    ORDER BY mt.updated_at DESC
+  `,
+  [],
+  (err, rows) => {
+
+    if(err){
+
+      return res.status(400).json({
+        error: err.message
+      });
+    }
+
+    res.json(rows);
+  });
+});
+
+
+/* PROFESSOR ENVIA RELATÓRIO */
+app.post(
+  '/admin/mentoria-tasks/:id/report',
+
+  auth,
+  adminOnly,
+
+  uploadMentoria.single('report_file'),
+
+  (req, res) => {
+
+    const { id } = req.params;
+
+    if(!req.file){
+
+      return res.status(400).json({
+        error:'Relatório não enviado'
+      });
+    }
+
+    const fileUrl =
+      `/uploads/mentoria/${req.file.filename}`;
+
+    db.run(`
+      UPDATE mentoria_tasks
+
+      SET
+
+       
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor rodando na porta ${PORT}`);
