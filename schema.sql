@@ -111,3 +111,24 @@ CREATE TABLE IF NOT EXISTS student_products (
   access_status TEXT DEFAULT 'active',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS mentoria_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  product_id INTEGER NOT NULL,
+  week_number INTEGER NOT NULL,
+
+  task_title TEXT,
+  task_file_url TEXT,
+  task_original_name TEXT,
+  task_uploaded_at DATETIME,
+
+  report_file_url TEXT,
+  report_original_name TEXT,
+  report_uploaded_at DATETIME,
+
+  status TEXT DEFAULT 'pending',
+
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
