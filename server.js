@@ -815,12 +815,17 @@ app.post('/student/mentoria-tasks/upload', auth, uploadSingle('task_file'), (req
           `
           UPDATE mentoria_tasks
           SET task_title = ?,
-              task_file_url = ?,
-              task_original_name = ?,
-              task_uploaded_at = CURRENT_TIMESTAMP,
-              status = 'task_uploaded',
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
+    task_file_url = ?,
+    task_original_name = ?,
+    task_uploaded_at = CURRENT_TIMESTAMP,
+
+    report_file_url = NULL,
+    report_original_name = NULL,
+    report_uploaded_at = NULL,
+
+    status = 'task_uploaded',
+    updated_at = CURRENT_TIMESTAMP
+   WHERE id = ?
           `,
           [
             task_title || `Tarefa da semana ${week_number}`,
