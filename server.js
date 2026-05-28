@@ -1011,6 +1011,87 @@ app.get('/', (req, res) => {
   res.send('Backend Personal do Zero online');
 });
 
+/* =========================================================
+   EXTRA MATERIALS
+========================================================= */
+
+app.post('/admin/extra-materials', auth, adminOnly, (req, res) => {
+
+  const {
+    title,
+    description,
+    url,
+    target,
+    product_type,
+    student_id
+  } = req.body;
+
+  db.run(
+    `
+    INSERT INTO extra_materials
+    (
+      title,
+      description,
+      url,
+      target,
+      product_type,
+      student_id,
+      active
+    )
+    VALUES (?, ?, ?, ?, ?, ?, 1)
+    `,
+    [
+      title,
+      description,
+      url,
+      target || 'all',
+      product_type || null,
+      student_id || null
+    ],
+    function(err){
+
+      if(err){
+        return res.status(400).json({
+          error: err.message
+        });
+      }
+
+      res.json({
+        success:true,
+        id:this.lastID
+      });
+    }
+  );
+});
+
+app.get('/student/extra-materials', auth, (req, res) => {
+
+  db.all(
+    `
+    SELECT *
+    FROM extra_materials
+    WHERE active = 1
+    AND
+    (
+      target = 'all'
+      OR student_id = ?
+    )
+    ORDER BY created_at DESC
+    `,
+    [req.user.id],
+    (err, rows) => {
+
+      if(err){
+        return res.status(400).json({
+          error: err.message
+        });
+      }
+
+      res.json(rows);
+    }
+  );
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
