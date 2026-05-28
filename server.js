@@ -263,7 +263,7 @@ app.get('/admin/students', auth, adminOnly, (req, res) => {
     LEFT JOIN user_plans ON user_plans.user_id = users.id
     LEFT JOIN plans ON plans.id = user_plans.plan_id
     WHERE users.role = 'student'
-    ORDER BY COALESCE(users.created_at, users.id) DESC
+    ORDER BY users.id DESC
     `,
     [],
     (err, rows) => {
