@@ -257,7 +257,7 @@ app.get('/admin/students', auth, adminOnly, (req, res) => {
       users.id,
       users.name,
       users.email,
-      users.status,
+      COALESCE(users.status, 'active') AS status,
       plans.name AS plan
     FROM users
     LEFT JOIN user_plans ON user_plans.user_id = users.id
@@ -267,8 +267,12 @@ app.get('/admin/students', auth, adminOnly, (req, res) => {
     `,
     [],
     (err, rows) => {
-      if (err) return res.status(400).json({ error: err.message });
-      res.json(rows);
+      if (err) {
+        console.error('ERRO /admin/students:', err.message);
+        return res.status(400).json({ error: err.message });
+      }
+
+      res.json(rows || []);
     }
   );
 });
