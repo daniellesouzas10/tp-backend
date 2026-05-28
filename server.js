@@ -83,6 +83,11 @@ db.exec(schema);
 
 db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN address TEXT`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN created_at TEXT`, () => {});
+
+db.run(`UPDATE users SET status = 'active' WHERE status IS NULL OR status = ''`);
+db.run(`UPDATE users SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL OR created_at = ''`);
 
 db.run(`ALTER TABLE student_products ADD COLUMN curso_id INTEGER`, () => {});
 db.run(`ALTER TABLE student_products ADD COLUMN imersao_config TEXT`, () => {});
@@ -258,7 +263,7 @@ app.get('/admin/students', auth, adminOnly, (req, res) => {
     LEFT JOIN user_plans ON user_plans.user_id = users.id
     LEFT JOIN plans ON plans.id = user_plans.plan_id
     WHERE users.role = 'student'
-    ORDER BY users.created_at DESC
+    ORDER BY COALESCE(users.created_at, users.id) DESC
     `,
     [],
     (err, rows) => {
