@@ -84,10 +84,10 @@ db.exec(schema);
 db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN address TEXT`, () => {});
 db.run(`ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'`, () => {});
-db.run(`ALTER TABLE users ADD COLUMN created_at TEXT`, () => {});
+db.run(`ALTER TABLE users ADD COLUMN created_at DATETIME`, () => {});
 
-db.run(`UPDATE users SET status = 'active' WHERE status IS NULL OR status = ''`);
-db.run(`UPDATE users SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL OR created_at = ''`);
+db.run(`UPDATE users SET status = 'active' WHERE status IS NULL OR status = ''`, () => {});
+db.run(`UPDATE users SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL OR created_at = ''`, () => {});
 
 db.run(`ALTER TABLE student_products ADD COLUMN curso_id INTEGER`, () => {});
 db.run(`ALTER TABLE student_products ADD COLUMN imersao_config TEXT`, () => {});
@@ -126,6 +126,25 @@ db.run(`
     report_original_name TEXT,
     report_uploaded_at DATETIME,
     status TEXT DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS extra_materials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    url TEXT NOT NULL,
+    target TEXT DEFAULT 'draft',
+    product_types TEXT,
+    course_ids TEXT,
+    course_refs TEXT,
+    student_ids TEXT,
+    student_refs TEXT,
+    active INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
@@ -258,7 +277,7 @@ app.get('/admin/students', auth, adminOnly, (req, res) => {
       users.name,
       users.email,
       COALESCE(users.status, 'active') AS status,
-      plans.name AS plan
+      COALESCE(plans.name, '—') AS plan
     FROM users
     LEFT JOIN user_plans ON user_plans.user_id = users.id
     LEFT JOIN plans ON plans.id = user_plans.plan_id
@@ -1000,6 +1019,185 @@ app.get('/api/mentoria/tasks', auth, adminOnly, (req, res) => {
   );
 });
 
+
+/* =========================================================
+   EXTRA MATERIALS
+========================================================= */
+
+function safeJsonParseField(value, fallback) {
+  if (!value) return fallback;
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function extraMaterialRow(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    active: row.active === 1 || row.active === true,
+    product_types: safeJsonParseField(row.product_types, []),
+    course_ids: safeJsonParseField(row.course_ids, []),
+    course_refs: safeJsonParseField(row.course_refs, []),
+    student_ids: safeJsonParseField(row.student_ids, []),
+    student_refs: safeJsonParseField(row.student_refs, [])
+  };
+}
+
+function normalizeExtraArray(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  return [String(value)].filter(Boolean);
+}
+
+function normalizeExtraRefs(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+app.get('/admin/extra-materials', auth, adminOnly, (req, res) => {
+  db.all(
+    `SELECT * FROM extra_materials ORDER BY id DESC`,
+    [],
+    (err, rows) => {
+      if (err) return res.status(400).json({ error: err.message });
+      res.json((rows || []).map(extraMaterialRow));
+    }
+  );
+});
+
+app.post('/admin/extra-materials', auth, adminOnly, (req, res) => {
+  const {
+    title,
+    description,
+    url,
+    target,
+    product_types,
+    course_ids,
+    course_refs,
+    student_ids,
+    student_refs,
+    active
+  } = req.body;
+
+  if (!title || !url) {
+    return res.status(400).json({ error: 'Informe título e link do material.' });
+  }
+
+  db.run(
+    `
+    INSERT INTO extra_materials
+    (title, description, url, target, product_types, course_ids, course_refs, student_ids, student_refs, active, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `,
+    [
+      title,
+      description || '',
+      url,
+      target || 'draft',
+      JSON.stringify(normalizeExtraArray(product_types)),
+      JSON.stringify(normalizeExtraArray(course_ids)),
+      JSON.stringify(normalizeExtraRefs(course_refs)),
+      JSON.stringify(normalizeExtraArray(student_ids)),
+      JSON.stringify(normalizeExtraRefs(student_refs)),
+      active === false ? 0 : 1
+    ],
+    function (err) {
+      if (err) return res.status(400).json({ error: err.message });
+
+      db.get(`SELECT * FROM extra_materials WHERE id = ?`, [this.lastID], (err2, row) => {
+        if (err2) return res.status(400).json({ error: err2.message });
+        res.json(extraMaterialRow(row));
+      });
+    }
+  );
+});
+
+app.patch('/admin/extra-materials/:id', auth, adminOnly, (req, res) => {
+  const {
+    title,
+    description,
+    url,
+    target,
+    product_types,
+    course_ids,
+    course_refs,
+    student_ids,
+    student_refs,
+    active
+  } = req.body;
+
+  db.run(
+    `
+    UPDATE extra_materials
+    SET title = COALESCE(?, title),
+        description = COALESCE(?, description),
+        url = COALESCE(?, url),
+        target = COALESCE(?, target),
+        product_types = ?,
+        course_ids = ?,
+        course_refs = ?,
+        student_ids = ?,
+        student_refs = ?,
+        active = ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+    `,
+    [
+      title || null,
+      description ?? null,
+      url || null,
+      target || 'draft',
+      JSON.stringify(normalizeExtraArray(product_types)),
+      JSON.stringify(normalizeExtraArray(course_ids)),
+      JSON.stringify(normalizeExtraRefs(course_refs)),
+      JSON.stringify(normalizeExtraArray(student_ids)),
+      JSON.stringify(normalizeExtraRefs(student_refs)),
+      active === false ? 0 : 1,
+      req.params.id
+    ],
+    function (err) {
+      if (err) return res.status(400).json({ error: err.message });
+      if (!this.changes) return res.status(404).json({ error: 'Material extra não encontrado.' });
+
+      db.get(`SELECT * FROM extra_materials WHERE id = ?`, [req.params.id], (err2, row) => {
+        if (err2) return res.status(400).json({ error: err2.message });
+        res.json(extraMaterialRow(row));
+      });
+    }
+  );
+});
+
+app.delete('/admin/extra-materials/:id', auth, adminOnly, (req, res) => {
+  db.run(`DELETE FROM extra_materials WHERE id = ?`, [req.params.id], function (err) {
+    if (err) return res.status(400).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+app.get('/student/extra-materials', auth, (req, res) => {
+  db.all(
+    `SELECT * FROM extra_materials WHERE active = 1 AND target <> 'draft' ORDER BY id DESC`,
+    [],
+    (err, rows) => {
+      if (err) return res.status(400).json({ error: err.message });
+
+      const userId = String(req.user.id);
+      const allowed = (rows || []).map(extraMaterialRow).filter(m => {
+        const target = m.target || 'draft';
+        if (target === 'all') return true;
+        if (target === 'students') return (m.student_ids || []).map(String).includes(userId);
+        return true;
+      });
+
+      res.json(allowed);
+    }
+  );
+});
+
 /* =========================================================
    DEBUG / ROOT / SERVER
 ========================================================= */
@@ -1013,87 +1211,6 @@ app.get('/debug/users', (req, res) => {
 
 app.get('/', (req, res) => {
   res.send('Backend Personal do Zero online');
-});
-
-/* =========================================================
-   EXTRA MATERIALS
-========================================================= */
-
-app.post('/admin/extra-materials', auth, adminOnly, (req, res) => {
-
-  const {
-    title,
-    description,
-    url,
-    target,
-    product_type,
-    student_id
-  } = req.body;
-
-  db.run(
-    `
-    INSERT INTO extra_materials
-    (
-      title,
-      description,
-      url,
-      target,
-      product_type,
-      student_id,
-      active
-    )
-    VALUES (?, ?, ?, ?, ?, ?, 1)
-    `,
-    [
-      title,
-      description,
-      url,
-      target || 'all',
-      product_type || null,
-      student_id || null
-    ],
-    function(err){
-
-      if(err){
-        return res.status(400).json({
-          error: err.message
-        });
-      }
-
-      res.json({
-        success:true,
-        id:this.lastID
-      });
-    }
-  );
-});
-
-app.get('/student/extra-materials', auth, (req, res) => {
-
-  db.all(
-    `
-    SELECT *
-    FROM extra_materials
-    WHERE active = 1
-    AND
-    (
-      target = 'all'
-      OR student_id = ?
-    )
-    ORDER BY created_at DESC
-    `,
-    [req.user.id],
-    (err, rows) => {
-
-      if(err){
-        return res.status(400).json({
-          error: err.message
-        });
-      }
-
-      res.json(rows);
-    }
-  );
 });
 
 app.listen(PORT, '0.0.0.0', () => {
