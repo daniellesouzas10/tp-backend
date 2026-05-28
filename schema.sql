@@ -132,3 +132,21 @@ CREATE TABLE IF NOT EXISTS mentoria_tasks (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS extra_materials (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+  title TEXT NOT NULL,
+  description TEXT,
+
+  url TEXT NOT NULL,
+
+  target TEXT DEFAULT 'all',
+
+  product_type TEXT,
+  student_id INTEGER,
+
+  active INTEGER DEFAULT 1,
+
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
