@@ -95,6 +95,7 @@ db.run(`ALTER TABLE student_products ADD COLUMN mentoria_config TEXT`, () => {})
 db.run(`ALTER TABLE student_products ADD COLUMN imersao_access_level INTEGER`, () => {});
 db.run(`ALTER TABLE student_products ADD COLUMN imersao_day_1_release TEXT`, () => {});
 db.run(`ALTER TABLE student_products ADD COLUMN imersao_day_2_release TEXT`, () => {});
+db.run(`ALTER TABLE student_products ADD COLUMN event_datetime TEXT`, () => {});
 
 db.run(`
   CREATE TABLE IF NOT EXISTS student_products (
@@ -452,7 +453,8 @@ app.post('/admin/product-release', auth, adminOnly, (req, res) => {
     mentoria_config,
     imersao_access_level,
     imersao_day_1_release,
-    imersao_day_2_release
+    imersao_day_2_release,
+    event_datetime
   } = req.body;
 
   if (!user_id || !product_type || !product_name || !release_datetime) {
@@ -468,8 +470,8 @@ app.post('/admin/product-release', auth, adminOnly, (req, res) => {
      main_url, material_url, bonus_url, notes, access_status,
      imersao_config, mentoria_config,
      imersao_access_level, imersao_day_1_release, imersao_day_2_release,
-     curso_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+     curso_id, event_datetime)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       user_id,
@@ -485,7 +487,8 @@ app.post('/admin/product-release', auth, adminOnly, (req, res) => {
       imersao_access_level ?? null,
       imersao_day_1_release || null,
       imersao_day_2_release || null,
-      req.body.curso_id || null
+      req.body.curso_id || null,
+      event_datetime || null
     ],
     function (err) {
       if (err) return res.status(400).json({ error: err.message });
@@ -647,6 +650,7 @@ app.get('/student/products', auth, (req, res) => {
         return {
           ...product,
           released: now >= releaseDate,
+          event_datetime: product.event_datetime || null,
           imersao_config: product.imersao_config ? JSON.parse(product.imersao_config) : null,
           mentoria_config: product.mentoria_config ? JSON.parse(product.mentoria_config) : null
         };
