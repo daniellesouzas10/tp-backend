@@ -1218,6 +1218,108 @@ app.get('/student/extra-materials', auth, (req, res) => {
   );
 });
 
+app.post('/admin/courses', auth, adminOnly, (req, res) => {
+  const {
+    id,
+    local_id,
+    tipo,
+    product_type,
+    nome,
+    product_name,
+    apelido,
+    dataInicio,
+    hora,
+    sessoes,
+    status
+  } = req.body;
+
+  const tipoFinal = tipo || product_type;
+  const nomeFinal = nome || product_name;
+
+  if (!tipoFinal || !nomeFinal) {
+    return res.status(400).json({ error: 'Informe tipo e nome do curso.' });
+  }
+
+  const localId = String(local_id || id || '');
+
+  db.get(
+    `SELECT id FROM courses WHERE local_id = ?`,
+    [localId],
+    (err, existing) => {
+      if (err) return res.status(400).json({ error: err.message });
+
+      if (existing) {
+        db.run(
+          `
+          UPDATE courses
+          SET tipo = ?, nome = ?, apelido = ?, dataInicio = ?, hora = ?, sessoes = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+          `,
+          [
+            tipoFinal,
+            nomeFinal,
+            apelido || '',
+            dataInicio || '',
+            hora || '',
+            JSON.stringify(Array.isArray(sessoes) ? sessoes : []),
+            status || 'ativo',
+            existing.id
+          ],
+          function (err2) {
+            if (err2) return res.status(400).json({ error: err2.message });
+            res.json({ success: true, id: existing.id });
+          }
+        );
+      } else {
+        db.run(
+          `
+          INSERT INTO courses
+          (local_id, tipo, nome, apelido, dataInicio, hora, sessoes, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            localId,
+            tipoFinal,
+            nomeFinal,
+            apelido || '',
+            dataInicio || '',
+            hora || '',
+            JSON.stringify(Array.isArray(sessoes) ? sessoes : []),
+            status || 'ativo'
+          ],
+          function (err3) {
+            if (err3) return res.status(400).json({ error: err3.message });
+            res.json({ success: true, id: this.lastID });
+          }
+        );
+      }
+    }
+  );
+});
+
+app.get('/student/courses', auth, (req, res) => {
+  db.all(
+    `
+    SELECT *
+    FROM courses
+    WHERE status = 'ativo'
+    AND tipo IN ('workshop', 'imersao')
+    ORDER BY dataInicio ASC, hora ASC
+    `,
+    [],
+    (err, rows) => {
+      if (err) return res.status(400).json({ error: err.message });
+
+      res.json((rows || []).map(r => ({
+        ...r,
+        id: r.local_id || r.id,
+        server_id: r.id,
+        sessoes: r.sessoes ? JSON.parse(r.sessoes) : []
+      })));
+    }
+  );
+});
+
 /* =========================================================
    DEBUG / ROOT / SERVER
 ========================================================= */
