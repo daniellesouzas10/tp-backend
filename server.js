@@ -151,6 +151,22 @@ db.run(`
   )
 `);
 
+db.run(`
+  CREATE TABLE IF NOT EXISTS courses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    local_id TEXT,
+    tipo TEXT NOT NULL,
+    nome TEXT NOT NULL,
+    apelido TEXT,
+    dataInicio TEXT,
+    hora TEXT,
+    sessoes TEXT,
+    status TEXT DEFAULT 'ativo',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
 /* =========================================================
    AUTH
 ========================================================= */
