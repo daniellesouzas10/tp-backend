@@ -875,7 +875,7 @@ app.post('/student/mentoria-tasks/upload', auth, uploadSingle('task_file'), (req
     task_uploaded_at = CURRENT_TIMESTAMP,
 
     report_file_url = NULL,
-    report_original_name = NULL,
+    Buffer.from(req.file.originalname, 'latin1').toString('utf8') = NULL,
     report_uploaded_at = NULL,
 
     status = 'task_uploaded',
@@ -981,7 +981,7 @@ app.post('/admin/mentoria-tasks/:id/report', auth, adminOnly, uploadSingle('repo
         `
         UPDATE mentoria_tasks
         SET report_file_url = ?,
-            report_original_name = ?,
+            Buffer.from(req.file.originalname, 'latin1').toString('utf8') = ?,
             report_uploaded_at = CURRENT_TIMESTAMP,
             status = 'report_uploaded',
             updated_at = CURRENT_TIMESTAMP
