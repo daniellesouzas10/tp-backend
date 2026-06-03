@@ -995,22 +995,26 @@ app.post('/admin/mentoria-tasks/:id/report', auth, adminOnly, uploadSingle('repo
           if (err2) return res.status(400).json({ error: err2.message });
 
           const now = new Date();
+
 const dataHora = now.toLocaleString('pt-BR', {
   timeZone: 'America/Sao_Paulo',
   dateStyle: 'short',
   timeStyle: 'short'
 });
 
+const createdAtIso = now.toISOString();
+
 db.run(
   `
-  INSERT INTO notices (title, message, target, type)
-  VALUES (?, ?, ?, ?)
+  INSERT INTO notices (title, message, target, type, created_at)
+  VALUES (?, ?, ?, ?, ?)
   `,
   [
     `Relatório disponível — Semana ${String(task.week_number).padStart(2, '0')}`,
     `Seu relatório da ${task.product_name || 'Mentoria'} referente à Semana ${String(task.week_number).padStart(2, '0')} foi enviado em ${dataHora}.`,
     `user_${task.user_id}`,
-    'mentoria'
+    'mentoria',
+    createdAtIso
   ],
   () => {}
 );
