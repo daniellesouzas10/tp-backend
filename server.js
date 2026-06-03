@@ -552,12 +552,15 @@ app.patch('/admin/product-release/:id', auth, adminOnly, (req, res) => {
     }
 
     if (mentoria_sessoes_patch && Array.isArray(newMentoriaConfig)) {
-      newMentoriaConfig = newMentoriaConfig.map((s, i) => ({
-        ...s,
-        linkPrincipal: mentoria_sessoes_patch[i]?.linkPrincipal ?? s.linkPrincipal,
-        material: mentoria_sessoes_patch[i]?.material ?? s.material
-      }));
-    }
+  newMentoriaConfig = newMentoriaConfig.map((s, i) => ({
+    ...s,
+    linkPrincipal: mentoria_sessoes_patch[i]?.linkPrincipal ?? s.linkPrincipal,
+    material:      mentoria_sessoes_patch[i]?.material      ?? s.material,
+    bonus:         mentoria_sessoes_patch[i]?.bonus         ?? s.bonus,
+    data:          mentoria_sessoes_patch[i]?.data          ?? s.data,
+    hora:          mentoria_sessoes_patch[i]?.hora          ?? s.hora
+  }));
+}
 
     db.run(
       `
@@ -1303,7 +1306,7 @@ app.get('/student/courses', auth, (req, res) => {
     SELECT *
     FROM courses
     WHERE status = 'ativo'
-    AND tipo IN ('workshop', 'imersao')
+    AND tipo IN ('workshop', 'imersao', 'mentoria')
     ORDER BY dataInicio ASC, hora ASC
     `,
     [],
