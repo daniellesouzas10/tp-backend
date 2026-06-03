@@ -994,15 +994,7 @@ app.post('/admin/mentoria-tasks/:id/report', auth, adminOnly, uploadSingle('repo
         function (err2) {
           if (err2) return res.status(400).json({ error: err2.message });
 
-          const now = new Date();
-
-const dataHora = now.toLocaleString('pt-BR', {
-  timeZone: 'America/Sao_Paulo',
-  dateStyle: 'short',
-  timeStyle: 'short'
-});
-
-const createdAtIso = now.toISOString();
+         const createdAtIso = new Date().toISOString();
 
 db.run(
   `
