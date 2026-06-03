@@ -1001,7 +1001,8 @@ const dataHora = now.toLocaleString('pt-BR', {
 });
 
 db.run(
-  `
+  `console.log('DEBUG RELATORIO NOW:', new Date().toISOString());
+console.log('DEBUG RELATORIO dataHora:', dataHora);
   INSERT INTO notices (title, message, target, type)
   VALUES (?, ?, ?, ?)
   `,
