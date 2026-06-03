@@ -438,7 +438,8 @@ app.post('/admin/access', auth, adminOnly, (req, res) => {
 app.post('/admin/notices', auth, adminOnly, (req, res) => {
   const { title, message, target, type } = req.body;
 
-  db.run(
+  db.run(console.log('DEBUG RELATORIO NOW:', new Date().toISOString());
+console.log('DEBUG RELATORIO dataHora:', dataHora);
     `INSERT INTO notices (title, message, target, type) VALUES (?, ?, ?, ?)`,
     [title, message, target || 'all', type || 'info'],
     function (err) {
