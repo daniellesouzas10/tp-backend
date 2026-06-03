@@ -1016,7 +1016,24 @@ db.run(
     'mentoria',
     createdAtIso
   ],
-  () => {}
+  function(errNotice){
+    if(errNotice){
+      console.log('ERRO INSERT NOTICE:', errNotice.message);
+      return;
+    }
+
+    console.log('DEBUG NOTICE ID:', this.lastID);
+
+    db.get(
+      `SELECT id, created_at, title FROM notices WHERE id = ?`,
+      [this.lastID],
+      (err, row) => {
+        if(!err){
+          console.log('DEBUG NOTICE SALVA:', row);
+        }
+      }
+    );
+  }
 );
 
           res.json({
