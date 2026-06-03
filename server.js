@@ -438,8 +438,7 @@ app.post('/admin/access', auth, adminOnly, (req, res) => {
 app.post('/admin/notices', auth, adminOnly, (req, res) => {
   const { title, message, target, type } = req.body;
 
-  db.run(console.log('DEBUG RELATORIO NOW:', new Date().toISOString());
-console.log('DEBUG RELATORIO dataHora:', dataHora);
+  db.run(
     `INSERT INTO notices (title, message, target, type) VALUES (?, ?, ?, ?)`,
     [title, message, target || 'all', type || 'info'],
     function (err) {
@@ -994,40 +993,25 @@ app.post('/admin/mentoria-tasks/:id/report', auth, adminOnly, uploadSingle('repo
         function (err2) {
           if (err2) return res.status(400).json({ error: err2.message });
 
-         const createdAtIso = new Date().toISOString();
-console.log('DEBUG MENTORIA DATAHORA:', dataHora);
-console.log('DEBUG MENTORIA NOW:', now);
-console.log('DEBUG MENTORIA ISO:', createdAtIso);
+          const now = new Date();
+const dataHora = now.toLocaleString('pt-BR', {
+  timeZone: 'America/Sao_Paulo',
+  dateStyle: 'short',
+  timeStyle: 'short'
+});
+
 db.run(
   `
-  INSERT INTO notices (title, message, target, type, created_at)
-  VALUES (?, ?, ?, ?, ?)
+  INSERT INTO notices (title, message, target, type)
+  VALUES (?, ?, ?, ?)
   `,
   [
     `Relatório disponível — Semana ${String(task.week_number).padStart(2, '0')}`,
     `Seu relatório da ${task.product_name || 'Mentoria'} referente à Semana ${String(task.week_number).padStart(2, '0')} foi enviado em ${dataHora}.`,
     `user_${task.user_id}`,
-    'mentoria',
-    createdAtIso
+    'mentoria'
   ],
-  function(errNotice){
-    if(errNotice){
-      console.log('ERRO INSERT NOTICE:', errNotice.message);
-      return;
-    }
-
-    console.log('DEBUG NOTICE ID:', this.lastID);
-
-    db.get(
-      `SELECT id, created_at, title FROM notices WHERE id = ?`,
-      [this.lastID],
-      (err, row) => {
-        if(!err){
-          console.log('DEBUG NOTICE SALVA:', row);
-        }
-      }
-    );
-  }
+  () => {}
 );
 
           res.json({
