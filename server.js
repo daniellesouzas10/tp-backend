@@ -852,6 +852,7 @@ app.post('/student/mentoria-tasks/upload', auth, uploadSingle('task_file'), (req
   }
 
   const fileUrl = `/uploads/mentoria/${req.file.filename}`;
+  const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
 
   db.get(
     `
@@ -885,7 +886,7 @@ app.post('/student/mentoria-tasks/upload', auth, uploadSingle('task_file'), (req
           [
             task_title || `Tarefa da semana ${week_number}`,
             fileUrl,
-            req.file.originalname,
+            originalName,
             existing.id
           ],
           function (err2) {
@@ -895,7 +896,7 @@ app.post('/student/mentoria-tasks/upload', auth, uploadSingle('task_file'), (req
               success: true,
               id: existing.id,
               file_url: fileUrl,
-              original_name: req.file.originalname,
+              original_name: originalName,
               status: 'task_uploaded'
             });
           }
@@ -913,7 +914,7 @@ app.post('/student/mentoria-tasks/upload', auth, uploadSingle('task_file'), (req
             week_number,
             task_title || `Tarefa da semana ${week_number}`,
             fileUrl,
-            req.file.originalname
+            originalName
           ],
           function (err3) {
             if (err3) return res.status(400).json({ error: err3.message });
@@ -922,7 +923,7 @@ app.post('/student/mentoria-tasks/upload', auth, uploadSingle('task_file'), (req
               success: true,
               id: this.lastID,
               file_url: fileUrl,
-              original_name: req.file.originalname,
+              original_name: originalName,
               status: 'task_uploaded'
             });
           }
@@ -961,6 +962,7 @@ app.post('/admin/mentoria-tasks/:id/report', auth, adminOnly, uploadSingle('repo
   }
 
   const fileUrl = `/uploads/mentoria/${req.file.filename}`;
+  const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
 
   db.get(
     `
@@ -987,7 +989,7 @@ app.post('/admin/mentoria-tasks/:id/report', auth, adminOnly, uploadSingle('repo
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
         `,
-        [fileUrl, req.file.originalname, id],
+        [fileUrl, originalName, id],
         function (err2) {
           if (err2) return res.status(400).json({ error: err2.message });
 
@@ -1015,7 +1017,7 @@ app.post('/admin/mentoria-tasks/:id/report', auth, adminOnly, uploadSingle('repo
           res.json({
             success: true,
             file_url: fileUrl,
-            original_name: req.file.originalname,
+            original_name: originalName,
             status: 'report_uploaded'
           });
         }
@@ -1045,7 +1047,6 @@ app.get('/api/mentoria/tasks', auth, adminOnly, (req, res) => {
     }
   );
 });
-
 
 /* =========================================================
    EXTRA MATERIALS
