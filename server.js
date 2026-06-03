@@ -995,7 +995,9 @@ app.post('/admin/mentoria-tasks/:id/report', auth, adminOnly, uploadSingle('repo
           if (err2) return res.status(400).json({ error: err2.message });
 
          const createdAtIso = new Date().toISOString();
-
+console.log('DEBUG MENTORIA DATAHORA:', dataHora);
+console.log('DEBUG MENTORIA NOW:', now);
+console.log('DEBUG MENTORIA ISO:', createdAtIso);
 db.run(
   `
   INSERT INTO notices (title, message, target, type, created_at)
