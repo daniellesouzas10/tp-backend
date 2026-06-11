@@ -366,7 +366,13 @@ app.post('/auth/forgot-password', (req, res) => {
                   message: 'Se o e-mail estiver cadastrado, enviaremos o link de redefinição.'
                 });
               } catch (mailErr) {
-                console.error('ERRO ENVIO RESET SENHA:', mailErr.message);
+                console.error('ERRO ENVIO RESET SENHA:', {
+  message: mailErr.message,
+  code: mailErr.code,
+  command: mailErr.command,
+  response: mailErr.response,
+  responseCode: mailErr.responseCode
+});
                 res.status(500).json({ error: 'Erro ao enviar e-mail de redefinição.' });
               }
             }
