@@ -277,6 +277,165 @@ app.post('/auth/login', (req, res) => {
 });
 
 /* =========================================================
+   LOGIN — ESQUECI MINHA SENHA
+========================================================= */
+
+function resetEmailTransporter() {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || 'false') === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    }
+  });
+}
+
+app.post('/auth/forgot-password', (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+
+  if (!email) {
+    return res.status(400).json({ error: 'Informe o e-mail.' });
+  }
+
+  db.get(
+    `SELECT id, name, email, status FROM users WHERE LOWER(email) = ? LIMIT 1`,
+    [email],
+    async (err, user) => {
+      if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+
+      // Resposta genérica por segurança: não revela se o e-mail existe ou não.
+      if (!user || user.status !== 'active') {
+        return res.json({
+          success: true,
+          message: 'Se o e-mail estiver cadastrado, enviaremos o link de redefinição.'
+        });
+      }
+
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+      db.run(
+        `UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0`,
+        [user.id],
+        async () => {
+          db.run(
+            `
+            INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+            VALUES (?, ?, ?)
+            `,
+            [user.id, tokenHash, expiresAt],
+            async function (err2) {
+              if (err2) {
+                return res.status(400).json({ error: err2.message });
+              }
+
+              try {
+                const frontendUrl = process.env.FRONTEND_URL || 'https://www.thiarapires.com.br';
+                const resetLink = `${frontendUrl}/redefinir-senha.html?token=${rawToken}`;
+
+                await resetEmailTransporter().sendMail({
+                  from: process.env.SMTP_FROM || process.env.SMTP_USER,
+                  to: user.email,
+                  subject: 'Redefinição de senha — Personal do Zero',
+                  html: `
+                    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111">
+                      <h2>Redefinição de senha</h2>
+                      <p>Olá, ${user.name || 'aluno(a)'}.</p>
+                      <p>Recebemos uma solicitação para redefinir sua senha na Área do Aluno Personal do Zero.</p>
+                      <p>
+                        <a href="${resetLink}" style="display:inline-block;padding:12px 18px;background:#96F623;color:#050812;text-decoration:none;font-weight:bold;border-radius:8px">
+                          Redefinir senha
+                        </a>
+                      </p>
+                      <p>Este link expira em 1 hora.</p>
+                      <p>Se você não solicitou essa alteração, ignore este e-mail.</p>
+                    </div>
+                  `
+                });
+
+                res.json({
+                  success: true,
+                  message: 'Se o e-mail estiver cadastrado, enviaremos o link de redefinição.'
+                });
+              } catch (mailErr) {
+                console.error('ERRO ENVIO RESET SENHA:', mailErr.message);
+                res.status(500).json({ error: 'Erro ao enviar e-mail de redefinição.' });
+              }
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+app.post('/auth/reset-password', async (req, res) => {
+  const token = String(req.body.token || '').trim();
+  const password = String(req.body.password || '');
+
+  if (!token || !password) {
+    return res.status(400).json({ error: 'Token e senha são obrigatórios.' });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'A senha deve ter pelo menos 6 caracteres.' });
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  db.get(
+    `
+    SELECT prt.*, users.id AS user_id, users.status
+    FROM password_reset_tokens prt
+    JOIN users ON users.id = prt.user_id
+    WHERE prt.token_hash = ?
+    AND prt.used = 0
+    LIMIT 1
+    `,
+    [tokenHash],
+    async (err, row) => {
+      if (err) return res.status(400).json({ error: err.message });
+
+      if (!row) {
+        return res.status(400).json({ error: 'Link inválido ou já utilizado.' });
+      }
+
+      if (new Date(row.expires_at).getTime() < Date.now()) {
+        return res.status(400).json({ error: 'Link expirado. Solicite uma nova redefinição.' });
+      }
+
+      if (row.status !== 'active') {
+        return res.status(403).json({ error: 'Usuário bloqueado.' });
+      }
+
+      const hash = await bcrypt.hash(password, 10);
+
+      db.run(
+        `UPDATE users SET password_hash = ? WHERE id = ?`,
+        [hash, row.user_id],
+        function (err2) {
+          if (err2) return res.status(400).json({ error: err2.message });
+
+          db.run(
+            `UPDATE password_reset_tokens SET used = 1 WHERE id = ?`,
+            [row.id],
+            () => {
+              res.json({ success: true, message: 'Senha redefinida com sucesso.' });
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+
+/* =========================================================
    ADMIN — ALUNOS
 ========================================================= */
 
